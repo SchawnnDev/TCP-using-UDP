@@ -10,6 +10,8 @@
 #include <string.h>
 #include "../../headers/global/packet.h"
 
+enum socketStatus {Disconnected = 0x0, Connecting = 0x1, Connected = 0x2};
+
 /********************************
  * Handle errors
  * *******************************/
@@ -63,6 +65,9 @@ void closeSocket(int sock) {
         raler("socket");
 }
 
+/********************************
+ * Sends a packet
+ * *******************************/
 void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {
     char* bytes_arr = malloc(packet->tailleFenetre);
     memcpy(bytes_arr, packet, packet->tailleFenetre);
@@ -77,31 +82,42 @@ void proceedHandshake(int socket) {
 
 }
 
-void source(char *mode, char *ip, int port_local, int port_medium) {
-    int sock = createSocket();
+/********************************
+ * Set up a socket
+ * *******************************/
+struct sockaddr_in prepareSocket(int sock, char *address, int port) {
 
-    struct in_addr addr;
-
-    if (inet_aton(ip, &addr) == 0)
-    {
+    struct in_addr addIP;
+    if (inet_aton(address, &addIP) == 0) {
         close(sock);
         raler("aton");
     }
 
-    struct sockaddr_in sockAddr;
-    memset(&sockAddr, 0, sizeof(sockAddr));
+    struct sockaddr_in socketAddr;
+    memset(&socketAddr, 0, sizeof(socketAddr));
+    socketAddr.sin_family = AF_INET;
+    socketAddr.sin_port = htons(port);
+    socketAddr.sin_addr.s_addr = addIP.s_addr;;
 
-    sockAddr.sin_family = AF_INET;
-    sockAddr.sin_port = htons(port_medium);
-    sockAddr.sin_addr.s_addr = addr.s_addr;
+    //struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
+    return socketAddr;
+}
 
-    struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
+/********************************
+ * Program
+ * *******************************/
+void source(char *mode, char *ip, int port_local, int port_medium) {
+
+    int outSocket = createSocket();
+
+    struct sockaddr_in socketAddr = prepareSocket(outSocket, ip, port_medium);
+    struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
 
     packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "bite");
-    sendPacket(sock, packet, sockaddr);
+    sendPacket(outSocket, packet, sockaddr);
     free(packet);
 
-    closeSocket(sock);
+    closeSocket(outSocket);
 }
 
 /********************************
@@ -123,7 +139,7 @@ int main(int argc, char *argv[]) {
 
     printf("---------------\n");
     printf("Mode chosen : %s\n", argv[1]);
-    printf("Destination adress : %s\n", argv[2]);
+    printf("Destination address : %s\n", argv[2]);
     printf("Local port set at : %s\n", argv[3]);
     printf("Destination port set at : %s\n", argv[4]);
     printf("---------------\n");
@@ -132,13 +148,14 @@ int main(int argc, char *argv[]) {
 
     char* ipDistante = argv[2];
     int portDistant = string_to_int(argv[4]);
-    int sock = createSocket();
+    int outSocket = createSocket();
+    int inSocket = createSocket();
 
     struct in_addr addr;
 
     if (inet_aton(ipDistante, &addr) == 0)
     {
-        close(sock);
+        close(outSocket);
         raler("aton");
     }
 
@@ -151,11 +168,23 @@ int main(int argc, char *argv[]) {
 
     struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
 
-    packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "bite");
-    sendPacket(sock, packet, sockaddr);
-    free(packet);
+    closeSocket(outSocket);
 
-    closeSocket(sock);
+    fd_set readfs;
+
+    enum socketStatus socketStatus = Disconnected;
+
+    packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "");
+    sendPacket(outSocket, packet, sockaddr);
+    free(packet);
+    /*
+    while(1)
+    {
+        FD_ZERO(&readfs);
+        FD_SET(outSocket, &readfs);
+        FD_SET(inSocket, &readfs);
+    } */
+
 
     return 0;
 }
