@@ -11,9 +11,11 @@
 #include <string.h>
 
 int main() {
+
     int port = 5555;
     int s ;
     ssize_t r;
+
     struct sockaddr_in myAddr;
     myAddr.sin_family = AF_INET;
     myAddr.sin_port = port;
