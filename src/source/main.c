@@ -59,18 +59,13 @@ proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSo
     if (status == DISCONNECTED) {
         packet_t packet = createPacket(0, SYN, a, 0, ECN_DISABLED, 52, "");
         sendPacket(outSocket, packet, sockaddr);
-        free(packet);
+        destroyPacket(packet);
         return WAITING_SYN_ACK;
     }
     // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-    char buff[52]; // Fixed buffer size no congestion in 3way-handshake
-    ssize_t recvFrom = recvfrom(inSocket, &buff, 52, 0, NULL, NULL);
 
-    if (recvFrom < 0)
-        raler("proceedHandshake recvfrom");
+    packet_t parsedPacket = recvPacket(inSocket, 52); // Fixed buffer size no congestion in 3way-handshake
 
-    packet_t parsedPacket = newPacket();
-    parsePacket(parsedPacket, buff);
     int b = parsedPacket->numSequence;
     parsedPacket->type = ACK;
     parsedPacket->numSequence = a + 1;
@@ -80,24 +75,6 @@ proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSo
     destroyPacket(parsedPacket);
 
     return ESTABLISHED;
-}
-
-/********************************
- * Program
- * *******************************/
-void source(char *mode, char *ip, int port_local, int port_medium) {
-
-    printf("Mode : %s\nLocal : %d\n", mode, port_local);
-    int outSocket = createSocket();
-
-    struct sockaddr_in socketAddr = prepareSendSocket(outSocket, ip, port_medium);
-    struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
-
-    packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "bite");
-    sendPacket(outSocket, packet, sockaddr);
-    destroyPacket(packet);
-
-    closeSocket(outSocket);
 }
 
 /********************************
@@ -121,50 +98,36 @@ int main(int argc, char *argv[]) {
 
     // else
 
+    char *ip = argv[2];
+    int port_local = string_to_int(argv[3]);
+    int port_medium = string_to_int(argv[4]);
+
     printf("---------------\n");
-    printf("Mode chosen : %s\n", argv[1]);
-    printf("Destination address : %s\n", argv[2]);
-    printf("Local port set at : %s\n", argv[3]);
-    printf("Destination port set at : %s\n", argv[4]);
+    printf("Mode chosen : %d\n", mode);
+    printf("Destination address : %s\n", ip);
+    printf("Local port set at : %d\n", port_local);
+    printf("Destination port set at : %d\n", port_medium);
     printf("---------------\n");
 
-    //source(argv[1], argv[2], string_to_int(argv[3]), string_to_int(argv[4]));
-
-    char *ipDistante = argv[2];
-    int portDistant = string_to_int(argv[4]);
+    // Test de la source vers le medium
     int outSocket = createSocket();
-    int inSocket = createSocket();
-
-    struct in_addr addr;
-
-    if (inet_aton(ipDistante, &addr) == 0) {
-        close(outSocket);
-        raler("aton");
-    }
-
-    struct sockaddr_in sockAddr;
-    memset(&sockAddr, 0, sizeof(sockAddr));
-
-    sockAddr.sin_family = AF_INET;
-    sockAddr.sin_port = htons(portDistant);
-    sockAddr.sin_addr.s_addr = addr.s_addr;
-
+    struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
     struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
-
+    packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "bite");
+    sendPacket(outSocket, packet, sockaddr);
+    destroyPacket(packet);
     closeSocket(outSocket);
 
     connection_status_t connectionStatus = DISCONNECTED;
     packet_status_t packetStatus = CAN_SEND_PACKET;
-
-    packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "");
-    sendPacket(outSocket, packet, sockaddr);
-    free(packet);
+    int inSocket = createSocket();
 
     srand(time(NULL));
 
     int numSeq = rand() % (UINT16_MAX / 2);
     int ret = 0;
     int size = 52;
+    printf("Pour eviter erreur dans makefile, SIZE : %d\n", size);
 
     struct pollfd fds[1];
     fds[0].fd = inSocket;
