@@ -113,8 +113,17 @@ packet_t createPacket(uint8_t id, uint8_t type,
     packet->numAcquittement = acq;
     packet->ECN = ECN;
     packet->tailleFenetre = size;
-    packet->data = malloc(size - 8);
-    packet->data = data;
+
+    int r = 0;
+    size -= 8;
+    packet->data = malloc(size);
+
+    if((r = snprintf(packet->data, size, "%s", data)) >= size || r < 0)
+    {
+        destroyPacket(packet);
+        raler("snprintf");
+    }
+
     return packet;
 }
 

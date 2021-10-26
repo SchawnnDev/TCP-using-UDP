@@ -100,7 +100,7 @@ int prepareRecvSocket(int socket, int port) {
         raler("bind");
     }
 
-    return socket; // else, use *
+    return socket;
 }
 
 void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {

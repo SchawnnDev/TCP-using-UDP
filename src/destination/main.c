@@ -10,48 +10,48 @@
 #include <stdbool.h>
 #include <string.h>
 
-int main() {
+#include "../../headers/global/utils.h"
+#include "../../headers/global/packet.h"
+#include "../../headers/global/socket_utils.h"
 
-    int port = 5555;
-    int s ;
-    ssize_t r;
+/********************************
+ * Program
+ * *******************************/
+void destination(char *address, int port_local, int port_medium) {
 
-    struct sockaddr_in myAddr;
-    myAddr.sin_family = AF_INET;
-    myAddr.sin_port = port;
-    myAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    printf("Address : %s\nLocal : %d\n", address, port_medium);
+    printf("---------------\n");
+    int inSocket = createSocket();
 
-    if ((s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
-    {
-        perror("socket: ");
-        exit(EXIT_FAILURE);
+    inSocket = prepareRecvSocket(inSocket, port_local);
+    packet_t packet = recvPacket(inSocket, 52);
+    showPacket(packet);
+    destroyPacket(packet);
+
+    closeSocket(inSocket);
+}
+
+/********************************
+ * Main program
+ * *******************************/
+int main(int argc, char *argv[]) {
+
+    // if : args unvalid
+
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <IP_distante> <port_local> <port_ecoute_dst_pertubateur>\n", argv[0]);
+        exit(1);
     }
 
-    struct sockaddr* aPt = (struct sockaddr*) &myAddr;
+    // else
 
-    if (bind(s, aPt, sizeof(myAddr)) == -1)
-    {
-        perror("bind: ");
-        exit(EXIT_FAILURE);
-    }
+    printf("---------------\n");
+    printf("Destination address : %s\n", argv[1]);
+    printf("Local port set at : %s\n", argv[2]);
+    printf("Destination port set at : %s\n", argv[3]);
+    printf("---------------\n");
 
-    // printf("\n%d\n\n", a.sin_port);
-    // sleep(20);
-
-    struct sockaddr incoming;
-    socklen_t addrlen = sizeof(incoming);
-    char buffer[256];
-
-    while(1)
-    {
-        if ((r = recvfrom(s, buffer, sizeof(buffer), 0, (struct sockaddr*) &incoming, &addrlen)) == -1)
-        {
-            perror("recvfrom: ");
-            exit(EXIT_FAILURE);
-        }
-
-        printf("%s\n", buffer);
-    }
+    destination(argv[1], string_to_int(argv[2]), string_to_int(argv[3]));
 
     return 0;
 }
