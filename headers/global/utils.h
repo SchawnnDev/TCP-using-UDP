@@ -1,9 +1,5 @@
-//
-// Created by mfrei on 26/10/2021.
-//
-
-#ifndef PROJETALGORESEAUX_UTILS_H
-#define PROJETALGORESEAUX_UTILS_H
+#ifndef _UTILS_H
+#define _UTILS_H
 
 /**
  * @param message
@@ -41,4 +37,4 @@ int string_to_int(char *arg) {
     return (int) N;
 }
 
-#endif //PROJETALGORESEAUX_UTILS_H
+#endif //_UTILS_H

@@ -23,6 +23,12 @@ struct packet {
 typedef struct packet *packet_t;
 
 /**
+ * Allocates a packet structure
+ * @return Allocated packet structure
+ */
+packet_t newPacket();
+
+/**
  *
  * @param id
  * @param type
@@ -57,9 +63,19 @@ void showPacket(packet_t packet);
  */
 void parsePacket(packet_t packet, const char *data);
 
+/**
+ * Destroys packet, frees data char array and structure
+ * @param packet Packet to destroy
+ */
+void destroyPacket(packet_t packet);
+
+packet_t newPacket() {
+    return malloc(sizeof(struct packet));
+}
+
 packet_t createPacket(uint8_t id, uint8_t type,
                       uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
-    packet_t packet = malloc(sizeof(struct packet));
+    packet_t packet = newPacket();
     packet->idFlux = id;
     packet->type = type;
     packet->numSequence = seq;
@@ -94,6 +110,11 @@ void parsePacket(packet_t packet, const char *data) {
 
     for (int i = 8; i < packet->tailleFenetre; ++i)
         packet->data[i - 8] = data[i];
+}
+
+void destroyPacket(packet_t packet) {
+    free(packet->data);
+    free(packet);
 }
 
 #endif

@@ -10,11 +10,37 @@
 #include <string.h>
 #include <time.h>
 #include <sys/poll.h>
+#include <stdint.h>
 #include "../../headers/global/packet.h"
 
-enum connectionStatus {DISCONNECTED = 0x0, WAITING_SYN_ACK = 0x1, ESTABLISHED = 0x1};
+enum connectionStatus {
+    DISCONNECTED = 0x0,
+    WAITING_SYN_ACK = 0x1,
+    ESTABLISHED = 0x2
+};
 
 typedef enum connectionStatus connection_status_t;
+
+enum packetStatus {
+    CAN_SEND_PACKET = 0,
+    WAITING_ACK = 1
+};
+
+typedef enum packetStatus packet_status_t;
+
+enum sendMode {
+    UNKNOWN = -1, STOP_AND_WAIT = 0, GO_BACK_N = 1
+};
+
+typedef enum sendMode send_mode_t;
+
+send_mode_t parseMode(char *mode) {
+    if (strcmp(mode, "stop-wait") != 0)
+        return STOP_AND_WAIT;
+    if (strcmp(mode, "go-back-n") != 0)
+        return GO_BACK_N;
+    return UNKNOWN; // Default
+}
 
 /********************************
  * Handle errors
@@ -37,7 +63,7 @@ int string_to_int(char *arg) {
 
     // check : error
     if ((errno == ERANGE && (N == LONG_MAX || N == LONG_MIN))
-    || (errno != 0 && N == 0)) {
+        || (errno != 0 && N == 0)) {
         raler("strtol");
     }
 
@@ -65,7 +91,7 @@ int createSocket() {
  * Closes a socket
  * *******************************/
 void closeSocket(int sock) {
-    if(close(sock) < 0)
+    if (close(sock) < 0)
         raler("socket");
 }
 
@@ -73,7 +99,7 @@ void closeSocket(int sock) {
  * Sends a packet
  * *******************************/
 void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {
-    char* bytes_arr = malloc(packet->tailleFenetre);
+    char *bytes_arr = malloc(packet->tailleFenetre);
     memcpy(bytes_arr, packet, packet->tailleFenetre);
 
     if (sendto(socket, bytes_arr, packet->tailleFenetre, 0, sockaddr, sizeof(*sockaddr)) == -1) {
@@ -82,25 +108,39 @@ void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {
     }
 }
 
-connection_status_t proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSocket, int outSocket, int numSeq) {
+/**
+ *  Si le status est disconnected, c'est qu'aucun packet n'a encore été échangé avec le serveur.
+ *  Si le status est wait, alors
+ *  CLI: A: numSeq = random ; puis envoi syn au serveur
+ *  SERVER: B: numSeq = random ; envoi syn au cli + ack => (A + 1)
+ *  CLI: syn: numSeq = B ;
+ *
+ */
+connection_status_t
+proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSocket, int outSocket, int a) {
 
-    if(status == DISCONNECTED)
-    {
-        packet_t packet = createPacket(0, SYN, numSeq, 20, ECN_DISABLED, 52, "");
+    if (status == DISCONNECTED) {
+        packet_t packet = createPacket(0, SYN, a, 0, ECN_DISABLED, 52, "");
         sendPacket(outSocket, packet, sockaddr);
         free(packet);
         return WAITING_SYN_ACK;
     }
     // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-    char buff[52];
-    ssize_t recvFrom = recvfrom(inSocket,  &buff, 52, 0, NULL, NULL);
+    char buff[52]; // Fixed buffer size no congestion in 3way-handshake
+    ssize_t recvFrom = recvfrom(inSocket, &buff, 52, 0, NULL, NULL);
 
-    if(recvFrom < 0)
+    if (recvFrom < 0)
         raler("proceedHandshake recvfrom");
 
-    packet_t packet = createPacket(0, ACK, 22, 20, ECN_DISABLED, 52, "");
-    sendPacket(outSocket, packet, sockaddr);
-    free(packet);
+    packet_t parsedPacket = newPacket();
+    parsePacket(parsedPacket, buff);
+    int b = parsedPacket->numSequence;
+    parsedPacket->type = ACK;
+    parsedPacket->numSequence = a + 1;
+    parsedPacket->numAcquittement = b + 1;
+
+    sendPacket(outSocket, parsedPacket, sockaddr);
+    destroyPacket(parsedPacket);
 
     return ESTABLISHED;
 }
@@ -154,7 +194,11 @@ int main(int argc, char *argv[]) {
     if (argc < 4) {
         fprintf(stderr, "Usage: %s <mode> <IP_distante> <port_local> <port_ecoute_src_pertubateur>\n", argv[0]);
         exit(1);
-    } else if (strcmp(argv[1], "stop-wait") != 0 && strcmp(argv[1], "go-back-n") != 0) {
+    }
+
+    send_mode_t mode = parseMode(argv[1]);
+
+    if (mode == UNKNOWN) {
         fprintf(stderr, "Usage: <mode> must be either 'stop-wait' or 'go-back-n'\n");
         exit(1);
     }
@@ -170,15 +214,14 @@ int main(int argc, char *argv[]) {
 
     //source(argv[1], argv[2], string_to_int(argv[3]), string_to_int(argv[4]));
 
-    char* ipDistante = argv[2];
+    char *ipDistante = argv[2];
     int portDistant = string_to_int(argv[4]);
     int outSocket = createSocket();
     int inSocket = createSocket();
 
     struct in_addr addr;
 
-    if (inet_aton(ipDistante, &addr) == 0)
-    {
+    if (inet_aton(ipDistante, &addr) == 0) {
         close(outSocket);
         raler("aton");
     }
@@ -194,9 +237,8 @@ int main(int argc, char *argv[]) {
 
     closeSocket(outSocket);
 
-    // fd_set readfs;
-
     connection_status_t connectionStatus = DISCONNECTED;
+    packet_status_t packetStatus = CAN_SEND_PACKET;
 
     packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "");
     sendPacket(outSocket, packet, sockaddr);
@@ -204,8 +246,9 @@ int main(int argc, char *argv[]) {
 
     srand(time(NULL));
 
-    int numSeq = rand();
+    int numSeq = rand() % (UINT16_MAX / 2);
     int ret = 0;
+    int size = 52;
 
     struct pollfd fds[1];
     fds[0].fd = inSocket;
@@ -213,30 +256,55 @@ int main(int argc, char *argv[]) {
 
     int timeout = 2 * 1000;
 
-    do
-    {
+    /**
+     *
+     * 3. une division de la fenêtre de congestion par deux lorsqu’une perte est détectée par l’expiration d’un timer,
+     * 4. un retour de la fenêtre de congestion à 52 octets lors de la détection d’une perte par la réception de 3 acquis dupliqués.
+     * 5. une réduction de la fenêtre de congestion de 10% lors de la réception d’un message avec le champ ECN > 0
+     *
+     *
+     */
+
+    do {
         // Poll timeout
-        if(ret == 0)
-        {
+        if (ret == 0) {
             /*
              * S'il y'a timeout, si connectionStatus est waiting syn ack
              * alors on disconnecte, car le packet a peut-être été perdu
              */
-            if(connectionStatus == WAITING_SYN_ACK)
-            {
+            if (connectionStatus == WAITING_SYN_ACK) {
                 connectionStatus = DISCONNECTED;
+            } else if (connectionStatus == ESTABLISHED && packetStatus == WAITING_ACK) {
+                // S'il y'a timeout ici, et qu'on est dans le gas du go back n,
+                // on reduit la taille de la fenêtre à 52.
+                if(mode == GO_BACK_N)
+                    size = 52;
+
+                packetStatus = CAN_SEND_PACKET; // On souhaite renvoyer le packet
             }
 
         } else {
 
-            if(connectionStatus != DISCONNECTED)
-            {
+            if (connectionStatus != DISCONNECTED) {
                 // Socket readable
-                if(fds[0].revents & POLLIN) {
+                if (fds[0].revents & POLLIN) {
 
-                    if(connectionStatus == WAITING_SYN_ACK)
-                    {
+                    if (connectionStatus == WAITING_SYN_ACK) {
                         connectionStatus = proceedHandshake(connectionStatus, sockaddr, inSocket, outSocket, numSeq);
+                    } else if (connectionStatus == ESTABLISHED && packetStatus == WAITING_ACK) {
+
+                        // Traiter ici le stop & wait et le go back n
+
+                        if(mode == STOP_AND_WAIT)
+                        {
+                            // num seq 0 ou 1 ici
+                        } else { // GO BACK N (unknown impossible)
+                            // changement num seq && augmentation taille
+                        }
+
+                        packetStatus = CAN_SEND_PACKET;
+                    } else {
+                        // WTF ??!?
                     }
 
                 }
@@ -245,15 +313,24 @@ int main(int argc, char *argv[]) {
 
         }
 
-        if(connectionStatus == DISCONNECTED || connectionStatus == WAITING_SYN_ACK)
-        {
+        if (connectionStatus == DISCONNECTED || connectionStatus == WAITING_SYN_ACK) {
             connectionStatus = proceedHandshake(connectionStatus, sockaddr, inSocket, outSocket, numSeq);
             continue;
         }
 
-    } while((ret = poll(fds, 1, timeout) != -1));
+        if(connectionStatus == ESTABLISHED) {
 
-    if(ret == -1) {
+            if(mode == STOP_AND_WAIT) {
+
+            } else {
+
+            }
+
+        }
+
+    } while ((ret = poll(fds, 1, timeout) != -1));
+
+    if (ret == -1) {
         perror("poll");
         return -1;
     }

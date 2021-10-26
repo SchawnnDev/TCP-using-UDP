@@ -1,9 +1,5 @@
-//
-// Created by mfrei on 26/10/2021.
-//
-
-#ifndef PROJETALGORESEAUX_SOCKET_UTILS_H
-#define PROJETALGORESEAUX_SOCKET_UTILS_H
+#ifndef _SOCKET_UTILS_H
+#define _SOCKET_UTILS_H
 
 /**
  * @return socket
@@ -120,4 +116,4 @@ packet_t recvPacket(int sock, int size) {
     return packet;
 }
 
-#endif //PROJETALGORESEAUX_SOCKET_UTILS_H
+#endif //_SOCKET_UTILS_H
