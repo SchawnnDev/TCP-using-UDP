@@ -8,9 +8,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
+#include <sys/poll.h>
 #include "../../headers/global/packet.h"
 
-enum socketStatus {Disconnected = 0x0, Connecting = 0x1, Connected = 0x2};
+enum connectionStatus {DISCONNECTED = 0x0, WAITING_SYN_ACK = 0x1, ESTABLISHED = 0x1};
+
+typedef enum connectionStatus connection_status_t;
 
 /********************************
  * Handle errors
@@ -78,8 +82,27 @@ void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {
     }
 }
 
-void proceedHandshake(int socket) {
+connection_status_t proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSocket, int outSocket, int numSeq) {
 
+    if(status == DISCONNECTED)
+    {
+        packet_t packet = createPacket(0, SYN, numSeq, 20, ECN_DISABLED, 52, "");
+        sendPacket(outSocket, packet, sockaddr);
+        free(packet);
+        return WAITING_SYN_ACK;
+    }
+    // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
+    char buff[52];
+    ssize_t recvFrom = recvfrom(inSocket,  &buff, 52, 0, NULL, NULL);
+
+    if(recvFrom < 0)
+        raler("proceedHandshake recvfrom");
+
+    packet_t packet = createPacket(0, ACK, 22, 20, ECN_DISABLED, 52, "");
+    sendPacket(outSocket, packet, sockaddr);
+    free(packet);
+
+    return ESTABLISHED;
 }
 
 /********************************
@@ -172,18 +195,67 @@ int main(int argc, char *argv[]) {
 
     fd_set readfs;
 
-    enum socketStatus socketStatus = Disconnected;
+    connection_status_t connectionStatus = DISCONNECTED;
 
     packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "");
     sendPacket(outSocket, packet, sockaddr);
     free(packet);
-    /*
-    while(1)
+
+    srand(time(NULL));
+
+    int numSeq = rand();
+    int ret = 0;
+
+    struct pollfd fds[1];
+    fds[0].fd = inSocket;
+    fds[0].events = POLLIN;
+
+    int timeout = 2 * 1000;
+
+    do
     {
-        FD_ZERO(&readfs);
-        FD_SET(outSocket, &readfs);
-        FD_SET(inSocket, &readfs);
-    } */
+        // Poll timeout
+        if(ret == 0)
+        {
+            /*
+             * S'il y'a timeout, si connectionStatus est waiting syn ack
+             * alors on disconnecte, car le packet a peut-être été perdu
+             */
+            if(connectionStatus == WAITING_SYN_ACK)
+            {
+                connectionStatus = DISCONNECTED;
+            }
+
+        } else {
+
+            if(connectionStatus != DISCONNECTED)
+            {
+                // Socket readable
+                if(fds[0].revents & POLLIN) {
+
+                    if(connectionStatus == WAITING_SYN_ACK)
+                    {
+                        connectionStatus = proceedHandshake(connectionStatus, sockaddr, inSocket, outSocket, numSeq);
+                    }
+
+                }
+
+            }
+
+        }
+
+        if(connectionStatus == DISCONNECTED || connectionStatus == WAITING_SYN_ACK)
+        {
+            connectionStatus = proceedHandshake(connectionStatus, sockaddr, inSocket, outSocket, numSeq);
+            continue;
+        }
+
+    } while((ret = poll(fds, 1, timeout) != -1));
+
+    if(ret == -1) {
+        perror("poll");
+        return -1;
+    }
 
 
     return 0;

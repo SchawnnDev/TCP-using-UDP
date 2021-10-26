@@ -20,7 +20,7 @@ struct packet {
     char *data;
 };
 
-typedef struct packet* packet_t;
+typedef struct packet *packet_t;
 
 /**
  *
@@ -49,6 +49,14 @@ void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr);
  */
 void showPacket(packet_t packet);
 
+/**
+ *
+ * @param packet
+ * @param data
+ * @return
+ */
+int parsePacket(packet_t packet, const char *data);
+
 packet_t createPacket(uint8_t id, uint8_t type,
                       uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
     packet_t packet = malloc(sizeof(struct packet));
@@ -71,6 +79,21 @@ void showPacket(packet_t packet) {
     printf("Packet ECN : %d\n", packet->ECN);
     printf("Packet tailleFenetre : %d\n", packet->tailleFenetre);
     printf("Packet data : %s\n", packet->data);
+}
+
+int parsePacket(packet_t packet, const char *data) {
+    packet->idFlux = data[0];
+    packet->type = data[1];
+    packet->numSequence = data[2] | (uint16_t) data[3] << 8;
+    packet->numAcquittement = data[4] | (uint16_t) data[5] << 8;
+    packet->ECN = data[6];
+    packet->tailleFenetre = data[7];
+    packet->data = malloc(packet->tailleFenetre - 8);
+
+    // Les données peuvent varier en fonction de la taille de la fenêtre
+
+    for (int i = 8; i < packet->tailleFenetre; ++i)
+        packet->data[i - 8] = data[i];
 }
 
 #endif
