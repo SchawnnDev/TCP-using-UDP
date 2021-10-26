@@ -1,18 +1,26 @@
 # Directories
 
+SOURCE_DIR = src/source
+OBJ_DIR_SOURCE = obj/source
+
+DESTINATION_DIR = src/destination
+OBJ_DIR_DESTINATION = obj/destination
+
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
-ARCH_DIR = dist
 TOOL_DIR = tools
-DICT_DIR = dict
+ARCH_DIR = dist
 TIME_DIR = time
 TEST_DIR = test
 
-# Program
+# Programs
 
-EXECUTABLE_NAME = ald
-EXECUTABLE = $(BIN_DIR)/./$(EXECUTABLE_NAME)
+EXECUTABLE_NAME_SRC = source
+EXECUTABLE_SRC = $(BIN_DIR)/./$(EXECUTABLE_NAME_SRC)
+
+EXECUTABLE_NAME_DST = destination
+EXECUTABLE_DST = $(BIN_DIR)/./$(EXECUTABLE_NAME_DST)
 
 # Compiler
 
@@ -21,46 +29,55 @@ CFLAGS = -Wall -Wextra -Wvla -Werror -g
 
 # Files and folders
 
-SRCS = $(shell find $(SRC_DIR) -name '*.c')
-SRC_DIRS = $(shell find $(SRC_DIR) -type d | sed 's/$(SRC_DIR)/./g' )
-OBJS = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
+SRCS_SOURCE = $(shell find $(SOURCE_DIR) -name '*.c')
+SRC_DIRS_SOURCE = $(shell find $(SOURCE_DIR) -type d | sed 's@$(SOURCE_DIR)@.@g' )
+OBJS_SOURCE = $(patsubst $(SOURCE_DIR)/%.c,$(OBJ_DIR_SOURCE)/%.o,$(SRCS_SOURCE))
+
+SRCS_DESTINATION = $(shell find $(DESTINATION_DIR) -name '*.c')
+SRC_DIRS_DESTINATION = $(shell find $(DESTINATION_DIR) -type d | sed 's@$(DESTINATION_DIR)@.@g' )
+OBJS_DESTINATION = $(patsubst $(DESTINATION_DIR)/%.c,$(OBJ_DIR_DESTINATION)/%.o,$(SRCS_DESTINATION))
 
 # Compiling
 
-$(BIN_DIR)/$(EXECUTABLE_NAME) : title tips build_dir $(OBJS)
-	@echo "\n> Compiling : "
-	@mkdir -p $(BIN_DIR)
-	$(CC) $(OBJS) -o $@
+all : build_dir_source build_dir_destination title $(BIN_DIR)/$(EXECUTABLE_NAME_SRC) $(BIN_DIR)/$(EXECUTABLE_NAME_DST)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+$(BIN_DIR)/$(EXECUTABLE_NAME_SRC) : build_dir_source $(OBJS_SOURCE)
+	@echo "\n> Compiling source : "
+	@mkdir -p $(BIN_DIR)
+	$(CC) $(OBJS_SOURCE) -o $@
+
+$(BIN_DIR)/$(EXECUTABLE_NAME_DST) : build_dir_destination $(OBJS_DESTINATION)
+	@echo "\n> Compiling destination: "
+	@mkdir -p $(BIN_DIR)
+	$(CC) $(OBJS_DESTINATION) -o $@
+
+$(OBJ_DIR_SOURCE)/%.o: $(SOURCE_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR_DESTINATION)/%.o: $(DESTINATION_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Run
 
-help: tips
-	@./bin/ald -help
+source_saw: title_src
+	@./bin/source "stop and wait" "127.0.0.1" 3333 4444
 
-trie: title tips
-	@./bin/ald -sentence -trie
+source_gbn: title_src
+	@./bin/source "go-back-n" "127.0.0.1" 3333 4444
 
-dawg: title tips
-	@./bin/ald -sentence -dawg
+destination: title_dst
+	@./bin/destination "127.0.0.1" 6666 5555
 
-test: title tips
-	@./bin/ald -test
-
-count: title tips
-	@./bin/ald -count -trie
-	@./bin/ald -count -dawg
-
-perf: title tips
-	@./bin/ald -perf -trie
-	@./bin/ald -perf -dawg
+medium: title_med
+	@python3 tools/medium.py -v -s -e -l 100
 
 # Utils
 
-build_dir:
-	@$(call make-obj)
+build_dir_source:
+	@$(call make-obj-src)
+
+build_dir_destination:
+	@$(call make-obj-dst)
 
 clean:
 	@echo "> Cleaning :"
@@ -68,14 +85,10 @@ clean:
 	rm -rf $(BIN_DIR)
 	rm -rf $(ARCH_DIR)
 
-dict:
-	@echo "> Loading dictionnary : "
-	@./tools/fetch_dict.sh
-
 dist: clean
 	@mkdir -p $(ARCH_DIR)
 	@echo "> Archiving :"
-	tar -czvf $(ARCH_DIR)/SDA2_Projet.tar.gz Makefile README.md $(TOOL_DIR) $(SRC_DIR) $(TIME_DIR) $(TEST_DIR)
+	tar -czvf $(ARCH_DIR)/AlgoReseaux_Projet.tar.gz Makefile README.md $(TOOL_DIR) $(SRC_DIR) $(TIME_DIR) $(TEST_DIR)
 
 report:
 	@echo "> Generating report:"
@@ -84,36 +97,68 @@ report:
 # Functions
 
 # Create obj directory structure
-define make-obj
-	mkdir -p $(OBJ_DIR)
-	for dir in $(SRC_DIRS); \
+
+define make-obj-src
+	mkdir -p $(OBJ_DIR_SOURCE)
+	for dir in $(SRC_DIRS_SOURCE); \
 	do \
-		mkdir -p $(OBJ_DIR)/$$dir; \
+		mkdir -p $(OBJ_DIR_SOURCE)/$$dir; \
+	done
+endef
+
+define make-obj-dst
+	mkdir -p $(OBJ_DIR_DESTINATION)
+	for dir in $(SRC_DIRS_DESTINATION); \
+	do \
+		mkdir -p $(OBJ_DIR_DESTINATION)/$$dir; \
 	done
 endef
 
 # Others
 
-list:
+help:
 	@echo "> List of commands :"
-	@echo "make -> compiles the program"
-	@echo "make dict -> creates the dictionnary files"
-	@echo "make trie -> runs the program using a trie"
-	@echo "make dawg -> runs the program using a dawg"
-	@echo "make test -> tests the program with presinserted values"
-	@echo "make count -> counts the number of nodes in each structures"
-	@echo "make perf -> tests the programs performances"
+	@echo "make -> compiles the programs"
+	@echo "make medium -> runs the medium, default : \n\t -v -s -e -l 100"
+	@echo "make destination -> runs the destination, default : \n\t 'localhost' 6666 5555"
+	@echo "make source_saw -> runs the source, default : \n\t 'stop and wait' 'localhost' 3333 4444"
+	@echo "make source_gbn -> runs the source, default : \n\t 'go-back-n' 'localhost' 3333 4444"
 	@echo "make clean -> clears the directory"
 	@echo "make dist -> creates an archive"
+	@echo "make report -> creates the report"
 	@echo "make help -> to display all informations"
 
-title:
-	@echo '   __   ___   _  _________  _____  _________  ___  _________________________________  _  __'
-	@echo '  / /  / _ | / |/ / ___/ / / / _ |/ ___/ __/ / _ \/ __/_  __/ __/ ___/_  __/  _/ __ \/ |/ /'
-	@echo ' / /__/ __ |/    / (_ / /_/ / __ / (_ / _/  / // / _/  / / / _// /__  / / _/ // /_/ /    / '
-	@echo '/____/_/ |_/_/|_/\___/\____/_/ |_\___/___/ /____/___/ /_/ /___/\___/ /_/ /___/\____/_/|_/  '
-	@echo '                                                                                           '
+# Titles
 
-tips:
-	@echo "> You may want to run <make> and <make dict> before starting the program :)"
-	@echo "> Tips : type <make list> to check out the list of commands\n"
+title:
+	@echo "  _______ _____ _____              _               _    _ _____  _____  "
+	@echo " |__   __/ ____|  __ \            (_)             | |  | |  __ \|  __ \ "
+	@echo "    | | | |    | |__) |  _   _ ___ _ _ __   __ _  | |  | | |  | | |__) |"
+	@echo "    | | | |    |  ___/  | | | / __| |  _ \ / _  | | |  | | |  | |  ___/ "
+	@echo "    | | | |____| |      | |_| \__ \ | | | | (_| | | |__| | |__| | |     "
+	@echo "    |_|  \_____|_|       \__,_|___/_|_| |_|\__, |  \____/|_____/|_|     "
+	@echo "                                            __/ |                       "
+	@echo "                                           |___/                        "
+	@echo "> Help : type <make help> to check out the list of commands\n"
+
+title_med:
+	@echo "                    _ _               "
+	@echo "                   | (_)              "
+	@echo " _ __ ___   ___  __| |_ _   _ _ __ ___"
+	@echo "|  _   _ \ / _ \/ _  | | | | |  _   _ \ "
+	@echo "| | | | | |  __/ (_| | | |_| | | | | | |"
+	@echo "|_| |_| |_|\___|\__,_|_|\__,_|_| |_| |_|"
+
+title_src:
+	@echo "  ___  ___  _   _ _ __ ___ ___ "
+	@echo " / __|/ _ \| | | | '__/ __/ _ \ "
+	@echo " \__ \ (_) | |_| | | | (_|  __/"
+	@echo " |___/\___/ \__,_|_|  \___\___|"
+
+title_dst:
+	@echo "      _           _   _             _   _             "
+	@echo "     | |         | | (_)           | | (_)            "
+	@echo "   __| | ___  ___| |_ _ _ __   __ _| |_ _  ___  _ __  "
+	@echo "  / _  |/ _ \/ __| __| |  _ \ / _  | __| |/ _ \|  _ \ "
+	@echo " | (_| |  __/\__ \ |_| | | | | (_| | |_| | (_) | | | |"
+	@echo "  \__,_|\___||___/\__|_|_| |_|\__,_|\__|_|\___/|_| |_|"

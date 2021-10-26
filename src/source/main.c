@@ -131,6 +131,7 @@ struct sockaddr_in prepareSocket(int sock, char *address, int port) {
  * *******************************/
 void source(char *mode, char *ip, int port_local, int port_medium) {
 
+    printf("Mode : %s\nLoca; : %d\n", mode, port_local);
     int outSocket = createSocket();
 
     struct sockaddr_in socketAddr = prepareSocket(outSocket, ip, port_medium);
@@ -193,7 +194,7 @@ int main(int argc, char *argv[]) {
 
     closeSocket(outSocket);
 
-    fd_set readfs;
+    // fd_set readfs;
 
     connection_status_t connectionStatus = DISCONNECTED;
 

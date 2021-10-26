@@ -55,15 +55,15 @@ void showPacket(packet_t packet);
  * @param data
  * @return
  */
-int parsePacket(packet_t packet, const char *data);
+void parsePacket(packet_t packet, const char *data);
 
 packet_t createPacket(uint8_t id, uint8_t type,
                       uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
     packet_t packet = malloc(sizeof(struct packet));
     packet->idFlux = id;
     packet->type = type;
-    packet->numSequence = 22;
-    packet->numAcquittement = 20;
+    packet->numSequence = seq;
+    packet->numAcquittement = acq;
     packet->ECN = ECN;
     packet->tailleFenetre = size;
     packet->data = malloc(size - 8);
@@ -81,7 +81,7 @@ void showPacket(packet_t packet) {
     printf("Packet data : %s\n", packet->data);
 }
 
-int parsePacket(packet_t packet, const char *data) {
+void parsePacket(packet_t packet, const char *data) {
     packet->idFlux = data[0];
     packet->type = data[1];
     packet->numSequence = data[2] | (uint16_t) data[3] << 8;
