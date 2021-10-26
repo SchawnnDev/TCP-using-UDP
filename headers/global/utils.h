@@ -2,13 +2,23 @@
 #define _UTILS_H
 
 /**
- * @param message
+ * @fn      noreturn void raler(char *message)
+ * @brief   Displays a message when an error has occured
+ * @param   message     Message to display
  */
 noreturn void raler(char *message);
+
 /**
- * @param string
+ * @fn      int string_to_int(char *arg)
+ * @brief   Transforms a given string to an int
+ * @param   arg     String to transform
+ * @return  String transformed to int
  */
 int string_to_int(char *arg);
+
+/*///////////*/
+/* FUNCTIONS */
+/*///////////*/
 
 noreturn void raler(char *message) {
     perror(message);

@@ -10,6 +10,30 @@ uint8_t SYN = 0x01;
 uint8_t ECN_ACTIVE = 0x01;
 uint8_t ECN_DISABLED = 0x00;
 
+/** @struct packet
+ *  @brief This structure is a TCP packet
+ */
+/** @var packet::idFlux
+ *  Member 'idFlux' contains the packet's ID
+ */
+/** @var packet::type
+ *  Member 'type' contains the packet's type (ACK, RST, FIN, SYN)
+ */
+/** @var packet::numSequence
+*  Member 'numSequence' contains the packet's sequence number
+*/
+/** @var packet::numAcquittement
+ *  Member 'numAcquittement' contains the packet's acquittal number
+ */
+/** @var packet::ECN
+*  Member 'ECN' contains the packet's ECN bit (true, false)
+*/
+/** @var packet::tailleFenetre
+ *  Member 'tailleFenetre' contains the packet's size
+ */
+/** @var packet::data
+*  Member 'data' contains the packet's data
+*/
 struct packet {
     uint8_t idFlux;
     uint8_t type;
@@ -23,54 +47,61 @@ struct packet {
 typedef struct packet *packet_t;
 
 /**
- * Allocates a packet structure
- * @return Allocated packet structure
+ * @fn      packet_t newPacket()
+ * @brief   Allocates a packet structure
+ * @return  Allocated packet structure
  */
 packet_t newPacket();
 
 /**
- *
- * @param id
- * @param type
- * @param seq
- * @param acq
- * @param ECN
- * @param size
- * @param data
- * @return
+ * @fn      void destroyPacket(packet_t packet)
+ * @brief   Destroys packet, frees data char array and structure
+ * @param   packet  Packet to destroy
  */
-packet_t createPacket(uint8_t id, uint8_t type, uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data);
+void destroyPacket(packet_t packet);
 
 /**
- *
- * @param socket
- * @param packet
- * @param sockaddr
+ * @fn      packet_t createPacket(uint8_t id, uint8_t type, uint8_t seq,
+ *                  uint8_t acq, uint8_t ECN, uint8_t size, char *data)
+ * @brief   Inserts given values into a packet
+ * @param   id      packet's ID
+ * @param   type    packet's type
+ * @param   seq     packet's sequence number
+ * @param   acq     packet's acquittal number
+ * @param   ECN     packet's ECN bit
+ * @param   size    packet's size
+ * @param   data    packet's data
+ * @return  Packet storing the given values
  */
-void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr);
+packet_t createPacket(uint8_t id, uint8_t type, uint8_t seq, uint8_t acq,
+                      uint8_t ECN, uint8_t size, char *data);
 
 /**
- *
- * @param packet
+ * @fn      void showPacket(packet_t packet)
+ * @brief   Displays the values inside a packet
+ * @param   packet  Packet to display
  */
 void showPacket(packet_t packet);
 
 /**
- *
- * @param packet
- * @param data
- * @return
+ * @fn      void parsePacket(packet_t packet, const char *data)
+ * @brief   Store the received message into a packet
+ * @param   packet  Empty packet
+ * @param   data    Message received
  */
 void parsePacket(packet_t packet, const char *data);
 
-/**
- * Destroys packet, frees data char array and structure
- * @param packet Packet to destroy
- */
-void destroyPacket(packet_t packet);
+/*///////////*/
+/* FUNCTIONS */
+/*///////////*/
 
 packet_t newPacket() {
     return malloc(sizeof(struct packet));
+}
+
+void destroyPacket(packet_t packet) {
+    free(packet->data);
+    free(packet);
 }
 
 packet_t createPacket(uint8_t id, uint8_t type,
@@ -110,11 +141,6 @@ void parsePacket(packet_t packet, const char *data) {
 
     for (int i = 8; i < packet->tailleFenetre; ++i)
         packet->data[i - 8] = data[i];
-}
-
-void destroyPacket(packet_t packet) {
-    free(packet->data);
-    free(packet);
 }
 
 #endif
