@@ -171,25 +171,55 @@ void closeTcpSocket(tcp_socket_t socket)
 connection_status_t
 proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSocket, int outSocket, int a)
 {
+    packet_t packet = NULL;
+    if(newPacket(packet) == -1)
+    {
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("newPacket");
+    }
 
     if (status == DISCONNECTED)
     {
-        packet_t packet = createPacket(0, SYN, a, 0, ECN_DISABLED, 52, "");
-        sendPacket(outSocket, packet, sockaddr);
+        if(setPacket(packet, 0, SYN, a, 0, ECN_DISABLED, 52, "") == -1)
+        {
+            destroyPacket(packet);
+            closeSocket(outSocket);
+            closeSocket(inSocket);
+            raler("snprintf");
+        }
+        if(sendPacket(outSocket, packet, sockaddr) == -1)
+        {
+            destroyPacket(packet);
+            closeSocket(outSocket);
+            closeSocket(inSocket);
+            raler("sendto");
+        }
         destroyPacket(packet);
         return WAITING_SYN_ACK;
     }
     // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-    packet_t parsedPacket = newPacket();
-    parsedPacket = recvPacket(parsedPacket, inSocket, 52); // Fixed buffer size no congestion in 3way-handshake
+    if(recvPacket(packet, inSocket, 52) == -1)
+    {
+        destroyPacket(packet);
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("recvfrom");
+    }
 
-    int b = parsedPacket->numSequence;
-    parsedPacket->type = ACK;
-    parsedPacket->numSequence = a + 1;
-    parsedPacket->numAcquittement = b + 1;
+    int b = packet->numSequence;
+    packet->type = ACK;
+    packet->numSequence = a + 1;
+    packet->numAcquittement = b + 1;
 
-    sendPacket(outSocket, parsedPacket, sockaddr);
-    destroyPacket(parsedPacket);
+    if(sendPacket(outSocket, packet, sockaddr) == -1)
+    {
+        destroyPacket(packet);
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("sendto");
+    }
+    destroyPacket(packet);
 
     return ESTABLISHED;
 }
@@ -229,21 +259,27 @@ int main(int argc, char *argv[])
     printf("Destination port set at : %d\n", port_medium);
     printf("---------------\n");
 
-    // Test de la source vers le medium
-    int outSocket = createSocket();
-    struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
-    struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
-    packet_t packet = createPacket(0, SYN, 22, 20, ECN_DISABLED, 52, "bite");
-    sendPacket(outSocket, packet, sockaddr);
-    destroyPacket(packet);
-    closeSocket(outSocket);
-
-    if (port_local != 1)
-        return 0;
-
     connection_status_t connectionStatus = DISCONNECTED;
     packet_status_t packetStatus = CAN_SEND_PACKET;
+
+    int outSocket = createSocket();
+    if(outSocket == -1)
+        raler("socket");
+    struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
+    struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
+
     int inSocket = createSocket();
+    if(inSocket == -1)
+    {
+        closeSocket(outSocket);
+        raler("socket");
+    }
+    if(prepareRecvSocket(inSocket, port_local) == -1)
+    {
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("bind");
+    }
 
     srand(time(NULL));
 
@@ -352,6 +388,9 @@ int main(int argc, char *argv[])
         perror("poll");
         return -1;
     }
+
+    closeSocket(outSocket);
+    closeSocket(inSocket);
 
     return 0;
 }

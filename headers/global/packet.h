@@ -48,22 +48,22 @@ struct packet
 typedef struct packet *packet_t;
 
 /**
- * @fn      packet_t newPacket()
+ * @fn      int newPacket(packet_t packet)
  * @brief   Allocates a packet structure
- * @return  Allocated packet structure
+ * @return  -1 if an error has occurred, else 0
  */
-packet_t newPacket();
+int newPacket(packet_t packet);
 
 /**
  * @fn      void destroyPacket(packet_t packet)
- * @brief   Destroys packet, frees data char array and structure
+ * @brief   Destroys packet, frees structure
  * @param   packet  Packet to destroy
  */
 void destroyPacket(packet_t packet);
 
 /**
- * @fn      packet_t createPacket(uint8_t id, uint8_t type, uint8_t seq,
- *                  uint8_t acq, uint8_t ECN, uint8_t size, char *data)
+ * @fn      packet_t setPacket(packet_t packet, uint8_t id, uint8_t type,
+ *          uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data);
  * @brief   Inserts given values into a packet
  * @param   id      packet's ID
  * @param   type    packet's type
@@ -72,10 +72,10 @@ void destroyPacket(packet_t packet);
  * @param   ECN     packet's ECN bit
  * @param   size    packet's size
  * @param   data    packet's data
- * @return  Packet storing the given values
+ * @return  -1 if an error has occurred, else 0
  */
-packet_t createPacket(uint8_t id, uint8_t type, uint8_t seq, uint8_t acq,
-                      uint8_t ECN, uint8_t size, char *data);
+int setPacket(packet_t packet, uint8_t id, uint8_t type, uint8_t seq,
+                   uint8_t acq, uint8_t ECN, uint8_t size, char *data);
 
 /**
  * @fn      void showPacket(packet_t packet)
@@ -96,9 +96,12 @@ void parsePacket(packet_t packet, const char *data);
 /* FUNCTIONS */
 /*///////////*/
 
-packet_t newPacket()
+int newPacket(packet_t packet)
 {
-    return malloc(sizeof(struct packet));
+    packet = malloc(sizeof(struct packet));
+    if(packet == NULL)
+        return -1;
+    return 0;
 }
 
 void destroyPacket(packet_t packet)
@@ -106,31 +109,8 @@ void destroyPacket(packet_t packet)
     free(packet);
 }
 
-packet_t createPacket(uint8_t id, uint8_t type,
-                      uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data)
-{
-    packet_t packet = newPacket();
-    packet->idFlux = id;
-    packet->type = type;
-    packet->numSequence = seq;
-    packet->numAcquittement = acq;
-    packet->ECN = ECN;
-    packet->tailleFenetre = size;
-
-    int r;
-
-    if ((r = snprintf(packet->data, 42, "%s", data)) >= 42 || r < 0)
-    {
-        destroyPacket(packet);
-        raler("snprintf");
-    }
-
-    return packet;
-}
-
-packet_t setPacket(packet_t packet, uint8_t id, uint8_t type,
+int setPacket(packet_t packet, uint8_t id, uint8_t type,
                       uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
-
     packet->idFlux = id;
     packet->type = type;
     packet->numSequence = seq;
@@ -139,14 +119,10 @@ packet_t setPacket(packet_t packet, uint8_t id, uint8_t type,
     packet->tailleFenetre = size;
 
     int r;
-
     if((r = snprintf(packet->data, 42, "%s", data)) >= 42 || r < 0)
-    {
-        destroyPacket(packet);
-        raler("snprintf");
-    }
+        return -1;
 
-    return packet;
+    return 0;
 }
 
 void showPacket(packet_t packet) {

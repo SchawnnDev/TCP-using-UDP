@@ -4,7 +4,7 @@
 /**
  * @fn      int createSocket()
  * @brief   Creates a socket
- * @return  Socket created
+ * @return  Socket created, -1 if an error has occurred
  */
 int createSocket();
 
@@ -30,7 +30,7 @@ struct sockaddr_in prepareSendSocket(int socket, char *address, int port);
  * @brief   Sets up a socket that will be used to receive packets
  * @param   socket     Socket to prepare
  * @param   port       Port the socket will be linked to
- * @return  Socket prepared
+ * @return  -1 if an error has occurred, else 0
  */
 int prepareRecvSocket(int socket, int port);
 
@@ -40,17 +40,18 @@ int prepareRecvSocket(int socket, int port);
  * @param   socket      Socket used to send a packet
  * @param   packet      Packet to be sent
  * @param   sockaddr    Destination address
+ * @return  -1 if an error has occurred, else 0
  */
-void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr);
+int sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr);
 
 /**
  * @fn      packet_t recvPacket(int socket, int size)
  * @brief   Receives a packet using a given socket
  * @param   socket      Socket used to receive a packet
  * @param   size        Max size of the packet
- * @return  Packet received
+ * @return  -1 if an error has occurred, else 0
  */
-packet_t recvPacket(packet_t packet, int socket, int size);
+int recvPacket(packet_t packet, int socket, int size);
 
 /*///////////*/
 /* FUNCTIONS */
@@ -58,10 +59,7 @@ packet_t recvPacket(packet_t packet, int socket, int size);
 
 int createSocket()
 {
-    int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s == -1)
-        raler("Create socket");
-    return s;
+    return socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 }
 
 void closeSocket(int socket)
@@ -75,7 +73,7 @@ struct sockaddr_in prepareSendSocket(int socket, char *address, int port)
     struct in_addr addIP;
     if (inet_aton(address, &addIP) == 0)
     {
-        close(socket);
+        closeSocket(socket);
         raler("aton");
     }
 
@@ -100,44 +98,35 @@ int prepareRecvSocket(int socket, int port)
     struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
 
     if (bind(socket, sockaddr, sizeof(socketAddr)) == -1)
-    {
-        close(socket);
-        raler("bind");
-    }
+        return -1;
 
-    return socket;
+    return 0;
 }
 
-void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr)
+int sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr)
 {
     char *bytes_arr = malloc(packet->tailleFenetre);
     memcpy(bytes_arr, packet, packet->tailleFenetre);
 
     if (sendto(socket, bytes_arr, packet->tailleFenetre, 0, sockaddr, sizeof(*sockaddr)) == -1)
-    {
-        close(socket);
-        raler("sendto");
-    }
+        return -1;
 
     free(bytes_arr);
+    return 0;
 }
 
-packet_t recvPacket(packet_t packet, int socket, int size) {
+int recvPacket(packet_t packet, int socket, int size) {
     struct sockaddr from;
     socklen_t addrlen = sizeof(from);
     char *buffer = malloc(sizeof(char) * size);
 
     if (recvfrom(socket, buffer, size, 0, &from, &addrlen) == -1)
-    {
-        closeSocket(socket);
-        raler("recvfrom");
-    }
+        return -1;
 
-    //packet_t packet = newPacket();
     parsePacket(packet, buffer);
     free(buffer);
 
-    return packet;
+    return 0;
 }
 
 #endif //_SOCKET_UTILS_H

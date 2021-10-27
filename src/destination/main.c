@@ -23,48 +23,53 @@ enum connectionStatus
 };
 typedef enum connectionStatus connection_status_t;
 
-void waitingHandshake (connection_status_t status, int inSocket, int outSocket, struct sockaddr *sockaddr, int numSeq)
+void waitingHandshake (connection_status_t status, packet_t packet, int inSocket, int outSocket, struct sockaddr *sockaddr, int numSeq)
 {
-    packet_t packet = newPacket();
 
     while(status == DISCONNECTED)
     {
-        packet = recvPacket(packet, inSocket, 52);
+        if(recvPacket(packet, inSocket, 52) == -1)
+        {
+            destroyPacket(packet);
+            closeSocket(outSocket);
+            closeSocket(inSocket);
+            raler("recvfrom");
+        }
         if(packet->type == SYN)
             status = WAITING_ACK;
     }
 
     int numAcq = packet->numSequence + 1;
-    packet = setPacket(packet, 0, SYN+ACK, numSeq, numAcq, ECN_DISABLED, 52, "");
-    sendPacket(outSocket, packet, sockaddr);
+    if(setPacket(packet, 0, SYN+ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
+    {
+        destroyPacket(packet);
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("snprintf");
+    }
+
+    if(sendPacket(outSocket, packet, sockaddr) == -1)
+    {
+        destroyPacket(packet);
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("sendto");
+    }
 
     while(status == WAITING_ACK)
     {
-        packet = recvPacket(packet, inSocket, 52);
+        if(recvPacket(packet, inSocket, 52) == -1)
+        {
+            destroyPacket(packet);
+            closeSocket(outSocket);
+            closeSocket(inSocket);
+            raler("recvfrom");
+        }
         if(packet->type == ACK)
             status = ESTABLISHED;
     }
 
     destroyPacket(packet);
-}
-
-/********************************
- * Program
- * *******************************/
-void destination(char *address, int port_local, int port_medium)
-{
-
-    printf("Address : %s\nLocal : %d\n", address, port_medium);
-    printf("---------------\n");
-    int inSocket = createSocket();
-
-    inSocket = prepareRecvSocket(inSocket, port_local);
-    packet_t packet = newPacket();
-    packet = recvPacket(packet, inSocket, 52);
-    showPacket(packet);
-    destroyPacket(packet);
-
-    closeSocket(inSocket);
 }
 
 /********************************
@@ -95,17 +100,41 @@ int main(int argc, char *argv[])
 
     connection_status_t connectionStatus = DISCONNECTED;
 
-    int inSocket = createSocket();
-    inSocket = prepareRecvSocket(inSocket, port_local);
-
     int outSocket = createSocket();
+    if(outSocket == -1)
+        raler("socket");
     struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
     struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
+
+    int inSocket = createSocket();
+    if(inSocket == -1)
+    {
+        closeSocket(outSocket);
+        raler("socket");
+    }
+    if(prepareRecvSocket(inSocket, port_local) == -1)
+    {
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("bind");
+    }
+
+    packet_t packet = NULL;
+    if(newPacket(packet) == -1)
+    {
+        closeSocket(outSocket);
+        closeSocket(inSocket);
+        raler("newPacket");
+    }
 
     srand(time(NULL));
     int numSeq = rand() % (UINT16_MAX / 2);
 
-    waitingHandshake(connectionStatus, inSocket, outSocket, sockaddr, numSeq);
+    waitingHandshake(connectionStatus, packet, inSocket, outSocket, sockaddr, numSeq);
+
+    closeSocket(inSocket);
+    closeSocket(outSocket);
+    destroyPacket(packet);
 
     return 0;
 }
