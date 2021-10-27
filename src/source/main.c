@@ -86,7 +86,8 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
     tv.tv_usec = 100000;
 
     // depuis destination
-    if(prepareRecvSocket(sock->inSocket, localPort) < 0 || setsockopt(sock->inSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+    if (prepareRecvSocket(sock->inSocket, localPort) < 0 ||
+        setsockopt(sock->inSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
     {
         close(sock->inSocket);
         close(sock->outSocket);
@@ -101,7 +102,7 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
     ssize_t ret;
 
     char data[52];
-    packet_t packet = newPacket();
+    packet_t packet = malloc(sizeof(struct packet));
 
     do
     {
@@ -144,8 +145,9 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
 }
 
 
-int sendTcpSocket(tcp_socket_t socket, char* buf, int len)
+int sendTcpSocket(tcp_socket_t socket, char *buf, int len)
 {
+    //
     return 0;
 }
 
@@ -155,6 +157,7 @@ int sendTcpSocket(tcp_socket_t socket, char* buf, int len)
  */
 void closeTcpSocket(tcp_socket_t socket)
 {
+    // 4 way handshake here
     close(socket->inSocket);
     close(socket->outSocket);
     free(socket);
@@ -172,7 +175,7 @@ connection_status_t
 proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSocket, int outSocket, int a)
 {
     packet_t packet = NULL;
-    if(newPacket(packet) == -1)
+    if (newPacket(packet) == -1)
     {
         closeSocket(outSocket);
         closeSocket(inSocket);
@@ -181,14 +184,14 @@ proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSo
 
     if (status == DISCONNECTED)
     {
-        if(setPacket(packet, 0, SYN, a, 0, ECN_DISABLED, 52, "") == -1)
+        if (setPacket(packet, 0, SYN, a, 0, ECN_DISABLED, 52, "") == -1)
         {
             destroyPacket(packet);
             closeSocket(outSocket);
             closeSocket(inSocket);
             raler("snprintf");
         }
-        if(sendPacket(outSocket, packet, sockaddr) == -1)
+        if (sendPacket(outSocket, packet, sockaddr) == -1)
         {
             destroyPacket(packet);
             closeSocket(outSocket);
@@ -199,7 +202,7 @@ proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSo
         return WAITING_SYN_ACK;
     }
     // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-    if(recvPacket(packet, inSocket, 52) == -1)
+    if (recvPacket(packet, inSocket, 52) == -1)
     {
         destroyPacket(packet);
         closeSocket(outSocket);
@@ -212,7 +215,7 @@ proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSo
     packet->numSequence = a + 1;
     packet->numAcquittement = b + 1;
 
-    if(sendPacket(outSocket, packet, sockaddr) == -1)
+    if (sendPacket(outSocket, packet, sockaddr) == -1)
     {
         destroyPacket(packet);
         closeSocket(outSocket);
@@ -263,18 +266,18 @@ int main(int argc, char *argv[])
     packet_status_t packetStatus = CAN_SEND_PACKET;
 
     int outSocket = createSocket();
-    if(outSocket == -1)
+    if (outSocket == -1)
         raler("socket");
     struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
     struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
 
     int inSocket = createSocket();
-    if(inSocket == -1)
+    if (inSocket == -1)
     {
         closeSocket(outSocket);
         raler("socket");
     }
-    if(prepareRecvSocket(inSocket, port_local) == -1)
+    if (prepareRecvSocket(inSocket, port_local) == -1)
     {
         closeSocket(outSocket);
         closeSocket(inSocket);
