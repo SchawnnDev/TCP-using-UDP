@@ -63,8 +63,8 @@ proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSo
         return WAITING_SYN_ACK;
     }
     // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-
-    packet_t parsedPacket = recvPacket(inSocket, 52); // Fixed buffer size no congestion in 3way-handshake
+    packet_t parsedPacket = newPacket();
+    parsedPacket = recvPacket(parsedPacket, inSocket, 52); // Fixed buffer size no congestion in 3way-handshake
 
     int b = parsedPacket->numSequence;
     parsedPacket->type = ACK;
