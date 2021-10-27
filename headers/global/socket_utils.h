@@ -88,6 +88,7 @@ struct sockaddr_in prepareSendSocket(int socket, char *address, int port)
     return socketAddr;
 }
 
+// pk int ici ? on a deja le sock
 int prepareRecvSocket(int socket, int port)
 {
     struct sockaddr_in socketAddr;
