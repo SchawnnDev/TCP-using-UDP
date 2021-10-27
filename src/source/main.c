@@ -54,7 +54,6 @@ struct tcpSocket
     int inSocket;
     int outSocket;
     int numSeq;
-    int congestionWindowSize;
     struct sockaddr *sockaddr;
     connection_status_t status;
 };
@@ -74,7 +73,6 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
     sock->inSocket = createSocket();
     sock->outSocket = createSocket();
     sock->status = DISCONNECTED;
-    sock->congestionWindowSize = 52;
 
     // vers destination
     struct sockaddr_in sockaddr = prepareSendSocket(sock->outSocket, ip, destinationPort);
@@ -110,7 +108,7 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
         if (sock->status == DISCONNECTED)
         {
             // envoi du paquet
-            setPacket(packet, 0, SYN, sock->numSeq, 0, ECN_DISABLED, sock->congestionWindowSize, "");
+            setPacket(packet, 0, SYN, sock->numSeq, 0, ECN_DISABLED, 52, "");
             sendPacket(sock->outSocket, packet, sock->sockaddr);
             sock->status = WAITING_SYN_ACK;
             continue;
@@ -127,9 +125,16 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
         // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
         parsePacket(packet, data);
 
+        // verification du type packet doit etre ACK & SYN
+        if (!(packet->type & ACK) || !(packet->type & SYN))
+        {
+            sock->status = DISCONNECTED;
+            continue;
+        }
+
         int b = packet->numSequence;
         packet->type = ACK;
-        packet->numSequence = sock->congestionWindowSize + 1;
+        packet->numSequence = sock->numSeq + 1;
         packet->numAcquittement = b + 1;
 
         sendPacket(sock->outSocket, packet, sock->sockaddr);
@@ -144,9 +149,53 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
     return sock;
 }
 
-
-int sendTcpSocket(tcp_socket_t socket, char *buf, int len)
+struct flux
 {
+    int fluxId;
+    int congestionWindowSize;
+    int currentIndex;
+    packet_t packets[UINT16_MAX];
+};
+
+typedef struct flux *flux_t;
+
+
+noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, char *buf, int len)
+{
+    // not connected
+    if (socket->status != ESTABLISHED)
+        return -1;
+
+    // Nombre de packets qu'il va falloir envoyer
+    int packetNb = len / 42;
+    packet_t packets[UINT16_MAX];
+
+    int fluxCount = 1;
+    flux_t fluxes[1];
+    fluxes[0] = malloc(sizeof(struct flux));
+    fluxes[0]->fluxId = 0;
+    fluxes[0]->congestionWindowSize = 52;
+    fluxes[0]->currentIndex = 0;
+
+    do
+    {
+
+
+        for (int i = 0; i < fluxCount; ++i)
+        {
+            flux_t flux = fluxes[i];
+
+            for (int j = 0; j < flux->congestionWindowSize / 52; ++j)
+            {
+
+            }
+
+        }
+
+
+    } while (1);
+
+
     //
     return 0;
 }
