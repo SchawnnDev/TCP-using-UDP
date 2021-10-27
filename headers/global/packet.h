@@ -42,7 +42,7 @@ struct packet
     uint16_t numAcquittement;
     uint8_t ECN;
     uint8_t tailleFenetre;
-    char *data;
+    char data[42];
 };
 
 typedef struct packet *packet_t;
@@ -118,11 +118,9 @@ packet_t createPacket(uint8_t id, uint8_t type,
     packet->ECN = ECN;
     packet->tailleFenetre = size;
 
-    int r = 0;
-    size -= 8;
-    packet->data = malloc(size);
+    int r;
 
-    if ((r = snprintf(packet->data, size, "%s", data)) >= size || r < 0)
+    if ((r = snprintf(packet->data, 42, "%s", data)) >= 42 || r < 0)
     {
         destroyPacket(packet);
         raler("snprintf");
@@ -131,8 +129,28 @@ packet_t createPacket(uint8_t id, uint8_t type,
     return packet;
 }
 
-void showPacket(packet_t packet)
-{
+packet_t setPacket(packet_t packet, uint8_t id, uint8_t type,
+                      uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
+
+    packet->idFlux = id;
+    packet->type = type;
+    packet->numSequence = seq;
+    packet->numAcquittement = acq;
+    packet->ECN = ECN;
+    packet->tailleFenetre = size;
+
+    int r;
+
+    if((r = snprintf(packet->data, 42, "%s", data)) >= 42 || r < 0)
+    {
+        destroyPacket(packet);
+        raler("snprintf");
+    }
+
+    return packet;
+}
+
+void showPacket(packet_t packet) {
     printf("Packet idFlux : %d\n", packet->idFlux);
     printf("Packet type : %d\n", packet->type);
     printf("Packet numSequence : %d\n", packet->numSequence);
@@ -150,11 +168,8 @@ void parsePacket(packet_t packet, const char *data)
     packet->numAcquittement = data[4] | (uint16_t) data[5] << 8;
     packet->ECN = data[6];
     packet->tailleFenetre = data[7];
-    packet->data = malloc(packet->tailleFenetre - 8);
 
-    // Les données peuvent varier en fonction de la taille de la fenêtre
-
-    for (int i = 8; i < packet->tailleFenetre; ++i)
+    for (int i = 8; i < 42; ++i)
         packet->data[i - 8] = data[i];
 }
 

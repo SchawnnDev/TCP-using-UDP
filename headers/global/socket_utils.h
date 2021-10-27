@@ -50,7 +50,7 @@ void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr);
  * @param   size        Max size of the packet
  * @return  Packet received
  */
-packet_t recvPacket(int socket, int size);
+packet_t recvPacket(packet_t packet, int socket, int size);
 
 /*///////////*/
 /* FUNCTIONS */
@@ -121,8 +121,7 @@ void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr)
     free(bytes_arr);
 }
 
-packet_t recvPacket(int socket, int size)
-{
+packet_t recvPacket(packet_t packet, int socket, int size) {
     struct sockaddr from;
     socklen_t addrlen = sizeof(from);
     char *buffer = malloc(sizeof(char) * size);
@@ -133,7 +132,7 @@ packet_t recvPacket(int socket, int size)
         raler("recvfrom");
     }
 
-    packet_t packet = newPacket();
+    //packet_t packet = newPacket();
     parsePacket(packet, buffer);
     free(buffer);
 
