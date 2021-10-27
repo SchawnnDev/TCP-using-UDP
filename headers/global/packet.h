@@ -103,7 +103,6 @@ packet_t newPacket()
 
 void destroyPacket(packet_t packet)
 {
-    free(packet->data);
     free(packet);
 }
 
