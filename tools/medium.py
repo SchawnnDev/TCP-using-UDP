@@ -175,6 +175,7 @@ while con:
                     if random.random() <= 0.7:
                         sock_sender.sendto(data, (dest_recv, port_recv))
             else:
+                print("renvoi ici")
                 sock_sender.sendto(data, (dest_recv, port_recv))
 
             if debug:

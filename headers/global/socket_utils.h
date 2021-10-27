@@ -56,22 +56,25 @@ packet_t recvPacket(int socket, int size);
 /* FUNCTIONS */
 /*///////////*/
 
-int createSocket() {
+int createSocket()
+{
     int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == -1)
         raler("Create socket");
     return s;
 }
 
-void closeSocket(int socket) {
-    if(close(socket) < 0)
+void closeSocket(int socket)
+{
+    if (close(socket) < 0)
         raler("socket");
 }
 
-struct sockaddr_in prepareSendSocket(int socket, char *address, int port) {
-
+struct sockaddr_in prepareSendSocket(int socket, char *address, int port)
+{
     struct in_addr addIP;
-    if (inet_aton(address, &addIP) == 0) {
+    if (inet_aton(address, &addIP) == 0)
+    {
         close(socket);
         raler("aton");
     }
@@ -85,17 +88,18 @@ struct sockaddr_in prepareSendSocket(int socket, char *address, int port) {
     return socketAddr;
 }
 
-int prepareRecvSocket(int socket, int port) {
-
+int prepareRecvSocket(int socket, int port)
+{
     struct sockaddr_in socketAddr;
     memset(&socketAddr, 0, sizeof(socketAddr));
     socketAddr.sin_family = AF_INET;
-    socketAddr.sin_port = port;
+    socketAddr.sin_port = htons(port);
     socketAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    struct sockaddr *sockaddr = (struct sockaddr*) &socketAddr;
+    struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
 
-    if (bind(socket, sockaddr, sizeof(socketAddr)) == -1) {
+    if (bind(socket, sockaddr, sizeof(socketAddr)) == -1)
+    {
         close(socket);
         raler("bind");
     }
@@ -103,11 +107,13 @@ int prepareRecvSocket(int socket, int port) {
     return socket;
 }
 
-void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {
-    char* bytes_arr = malloc(packet->tailleFenetre);
+void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr)
+{
+    char *bytes_arr = malloc(packet->tailleFenetre);
     memcpy(bytes_arr, packet, packet->tailleFenetre);
 
-    if (sendto(socket, bytes_arr, packet->tailleFenetre, 0, sockaddr, sizeof(*sockaddr)) == -1) {
+    if (sendto(socket, bytes_arr, packet->tailleFenetre, 0, sockaddr, sizeof(*sockaddr)) == -1)
+    {
         close(socket);
         raler("sendto");
     }
@@ -115,13 +121,14 @@ void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr) {
     free(bytes_arr);
 }
 
-packet_t recvPacket(int socket, int size) {
-
+packet_t recvPacket(int socket, int size)
+{
     struct sockaddr from;
     socklen_t addrlen = sizeof(from);
-    char *buffer = malloc(sizeof(char)*size);
+    char *buffer = malloc(sizeof(char) * size);
 
-    if (recvfrom(socket, buffer, size, 0, &from, &addrlen) == -1) {
+    if (recvfrom(socket, buffer, size, 0, &from, &addrlen) == -1)
+    {
         closeSocket(socket);
         raler("recvfrom");
     }

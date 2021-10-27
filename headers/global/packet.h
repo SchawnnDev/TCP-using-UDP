@@ -34,7 +34,8 @@ uint8_t ECN_DISABLED = 0x00;
 /** @var packet::data
 *  Member 'data' contains the packet's data
 */
-struct packet {
+struct packet
+{
     uint8_t idFlux;
     uint8_t type;
     uint16_t numSequence;
@@ -95,17 +96,20 @@ void parsePacket(packet_t packet, const char *data);
 /* FUNCTIONS */
 /*///////////*/
 
-packet_t newPacket() {
+packet_t newPacket()
+{
     return malloc(sizeof(struct packet));
 }
 
-void destroyPacket(packet_t packet) {
+void destroyPacket(packet_t packet)
+{
     free(packet->data);
     free(packet);
 }
 
 packet_t createPacket(uint8_t id, uint8_t type,
-                      uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
+                      uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data)
+{
     packet_t packet = newPacket();
     packet->idFlux = id;
     packet->type = type;
@@ -118,7 +122,7 @@ packet_t createPacket(uint8_t id, uint8_t type,
     size -= 8;
     packet->data = malloc(size);
 
-    if((r = snprintf(packet->data, size, "%s", data)) >= size || r < 0)
+    if ((r = snprintf(packet->data, size, "%s", data)) >= size || r < 0)
     {
         destroyPacket(packet);
         raler("snprintf");
@@ -127,7 +131,8 @@ packet_t createPacket(uint8_t id, uint8_t type,
     return packet;
 }
 
-void showPacket(packet_t packet) {
+void showPacket(packet_t packet)
+{
     printf("Packet idFlux : %d\n", packet->idFlux);
     printf("Packet type : %d\n", packet->type);
     printf("Packet numSequence : %d\n", packet->numSequence);
@@ -137,7 +142,8 @@ void showPacket(packet_t packet) {
     printf("Packet data : %s\n", packet->data);
 }
 
-void parsePacket(packet_t packet, const char *data) {
+void parsePacket(packet_t packet, const char *data)
+{
     packet->idFlux = data[0];
     packet->type = data[1];
     packet->numSequence = data[2] | (uint16_t) data[3] << 8;

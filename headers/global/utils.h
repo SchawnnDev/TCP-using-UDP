@@ -20,12 +20,14 @@ int string_to_int(char *arg);
 /* FUNCTIONS */
 /*///////////*/
 
-noreturn void raler(char *message) {
+noreturn void raler(char *message)
+{
     perror(message);
     exit(1);
 }
 
-int string_to_int(char *arg) {
+int string_to_int(char *arg)
+{
     // variables
     char *endptr, *str;
     str = arg;
@@ -35,7 +37,8 @@ int string_to_int(char *arg) {
 
     // check : error
     if ((errno == ERANGE && (N == LONG_MAX || N == LONG_MIN))
-        || (errno != 0 && N == 0)) {
+        || (errno != 0 && N == 0))
+    {
         raler("strtol");
     }
 

@@ -17,7 +17,8 @@
 /********************************
  * Program
  * *******************************/
-void destination(char *address, int port_local, int port_medium) {
+void destination(char *address, int port_local, int port_medium)
+{
 
     printf("Address : %s\nLocal : %d\n", address, port_medium);
     printf("---------------\n");
@@ -34,11 +35,13 @@ void destination(char *address, int port_local, int port_medium) {
 /********************************
  * Main program
  * *******************************/
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 
     // if : args unvalid
 
-    if (argc < 3) {
+    if (argc < 3)
+    {
         fprintf(stderr, "Usage: %s <IP_distante> <port_local> <port_ecoute_dst_pertubateur>\n", argv[0]);
         exit(1);
     }
