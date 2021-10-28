@@ -15,61 +15,143 @@
 #include "../../headers/global/packet.h"
 #include "../../headers/global/socket_utils.h"
 
-enum connectionStatus
+enum status
 {
     DISCONNECTED = 0x0,
-    WAITING_ACK = 0x1,
+    WAITING = 0x1,
     ESTABLISHED = 0x2
 };
-typedef enum connectionStatus connection_status_t;
+typedef enum status status_t;
 
-void waitingHandshake (connection_status_t status, packet_t packet, int inSocket, int outSocket, struct sockaddr *sockaddr, int numSeq)
+struct tcp
 {
+    packet_t packet;
+    int inSocket;
+    int outSocket;
+    struct sockaddr *sockaddr;
+    status_t status;
+    uint8_t flux[UINT8_MAX];
+};
+typedef struct tcp *tcp_t;
 
-    while(status == DISCONNECTED)
+tcp_t createTcp(char *ip, int port_local, int port_medium)
+{
+    tcp_t tcp = malloc(sizeof(struct tcp));
+    tcp->status = DISCONNECTED;
+    tcp->packet = newPacket();
+
+    tcp->outSocket = createSocket();
+    if(tcp->outSocket == -1)
+        raler("create outSocket");
+
+    struct sockaddr_in sockAddr = prepareSendSocket(tcp->outSocket, ip, port_medium);
+    tcp->sockaddr = (struct sockaddr *) &(sockAddr);
+
+    tcp->inSocket = createSocket();
+    if(tcp->inSocket == -1)
     {
-        if(recvPacket(packet, inSocket, 52) == -1)
+        closeSocket(tcp->inSocket);
+        raler("create inSocket");
+    }
+    if(prepareRecvSocket(tcp->inSocket, port_local) == -1)
+    {
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
+        raler("prepareRecvSocket");
+    }
+}
+
+void destroyTcp(tcp_t tcp)
+{
+    closeSocket(tcp->outSocket);
+    closeSocket(tcp->inSocket);
+    destroyPacket(tcp->packet);
+    free(tcp);
+}
+
+void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start, status_t end)
+{
+    // Status : DISCONNECTED (open) or ESTABLISHED (close)
+    while(tcp->status == start)
+    {
+        if(recvPacket(packet, tcp->inSocket, 52) == -1)
         {
             destroyPacket(packet);
-            closeSocket(outSocket);
-            closeSocket(inSocket);
+            closeSocket(tcp->outSocket);
+            closeSocket(tcp->inSocket);
             raler("recvfrom");
         }
-        if(packet->type == SYN)
-            status = WAITING_ACK;
+        // Type : SYN (open) or FIN (close)
+        if(packet->type == type)
+            tcp->status = WAITING;
     }
 
-    int numAcq = packet->numSequence + 1;
-    if(setPacket(packet, 0, SYN+ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
+    uint8_t idFlux = packet->idFlux;
+    uint8_t numAcq = packet->numSequence + 1;
+    srand(time(NULL));
+    uint8_t numSeq = rand() % (UINT16_MAX / 2);
+    if(setPacket(packet, idFlux, SYN+ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
     {
         destroyPacket(packet);
-        closeSocket(outSocket);
-        closeSocket(inSocket);
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
         raler("snprintf");
     }
 
-    if(sendPacket(outSocket, packet, sockaddr) == -1)
+    if(sendPacket(tcp->outSocket, packet, tcp->sockaddr) == -1)
     {
         destroyPacket(packet);
-        closeSocket(outSocket);
-        closeSocket(inSocket);
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
         raler("sendto");
     }
 
-    while(status == WAITING_ACK)
+    while(tcp->status == WAITING)
     {
-        if(recvPacket(packet, inSocket, 52) == -1)
+        if(recvPacket(packet, tcp->inSocket, 52) == -1)
         {
             destroyPacket(packet);
-            closeSocket(outSocket);
-            closeSocket(inSocket);
+            closeSocket(tcp->outSocket);
+            closeSocket(tcp->inSocket);
             raler("recvfrom");
         }
+        // Status : ESTABLISHED (open) or DISCONNECTED (close)
         if(packet->type == ACK)
-            status = ESTABLISHED;
+            tcp->status = end;
+    }
+}
+
+uint8_t checkPacket(tcp_t tcp, uint8_t idFlux)
+{
+    uint8_t last_ack = tcp->flux[idFlux];
+    if(tcp->packet->numAcquittement == last_ack + 1)
+        tcp->flux[idFlux]++;
+    return tcp->flux[idFlux];
+}
+
+void sendACK(tcp_t tcp)
+{
+
+    uint8_t idFlux = tcp->packet->idFlux;
+    uint8_t numAcq = checkPacket(tcp, idFlux);
+    uint8_t ECN = tcp->packet->ECN;
+    uint8_t size = tcp->packet->tailleFenetre;
+
+    if(setPacket(tcp->packet, idFlux, ACK, numAcq, numAcq, ECN, size, "") == -1)
+    {
+        destroyPacket(tcp->packet);
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
+        raler("snprintf");
     }
 
-    destroyPacket(packet);
+    if(sendPacket(tcp->outSocket, tcp->packet, tcp->sockaddr) == -1)
+    {
+        destroyPacket(tcp->packet);
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
+        raler("sendto");
+    }
 }
 
 /********************************
@@ -98,43 +180,29 @@ int main(int argc, char *argv[])
     printf("Destination port set at : %d\n", port_medium);
     printf("---------------\n");
 
-    connection_status_t connectionStatus = DISCONNECTED;
+    tcp_t tcp = createTcp(ip, port_local, port_medium);
 
-    int outSocket = createSocket();
-    if(outSocket == -1)
-        raler("socket");
-    struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
-    struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
+    // open connection
+    handleConnection(tcp->packet, tcp, SYN, DISCONNECTED, ESTABLISHED);
 
-    int inSocket = createSocket();
-    if(inSocket == -1)
+    // handlePackets
+    while(1)
     {
-        closeSocket(outSocket);
-        raler("socket");
-    }
-    if(prepareRecvSocket(inSocket, port_local) == -1)
-    {
-        closeSocket(outSocket);
-        closeSocket(inSocket);
-        raler("bind");
-    }
-
-    packet_t packet = NULL;
-    if(newPacket(packet) == -1)
-    {
-        closeSocket(outSocket);
-        closeSocket(inSocket);
-        raler("newPacket");
+        if(recvPacket(tcp->packet, tcp->inSocket, 52) == -1)
+        {
+            destroyPacket(tcp->packet);
+            closeSocket(tcp->outSocket);
+            closeSocket(tcp->inSocket);
+            raler("recvfrom");
+        }
+        if(tcp->packet->type == FIN) // end
+            break;
+        sendACK(tcp);
     }
 
-    srand(time(NULL));
-    int numSeq = rand() % (UINT16_MAX / 2);
-
-    waitingHandshake(connectionStatus, packet, inSocket, outSocket, sockaddr, numSeq);
-
-    closeSocket(inSocket);
-    closeSocket(outSocket);
-    destroyPacket(packet);
+    // close connection
+    handleConnection(tcp->packet, tcp, FIN, ESTABLISHED, DISCONNECTED);
+    destroyTcp(tcp);
 
     return 0;
 }

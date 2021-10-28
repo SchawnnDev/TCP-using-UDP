@@ -48,11 +48,11 @@ struct packet
 typedef struct packet *packet_t;
 
 /**
- * @fn      int newPacket(packet_t packet)
+ * @fn      packet_t newPacket()
  * @brief   Allocates a packet structure
- * @return  -1 if an error has occurred, else 0
+ * @return  Packet created
  */
-int newPacket(packet_t packet);
+packet_t newPacket();
 
 /**
  * @fn      void destroyPacket(packet_t packet)
@@ -96,12 +96,12 @@ void parsePacket(packet_t packet, const char *data);
 /* FUNCTIONS */
 /*///////////*/
 
-int newPacket(packet_t packet)
+packet_t newPacket()
 {
-    packet = malloc(sizeof(struct packet));
+    packet_t packet = malloc(sizeof(struct packet));
     if(packet == NULL)
-        return -1;
-    return 0;
+        raler("newPacket");
+    return packet;
 }
 
 void destroyPacket(packet_t packet)
