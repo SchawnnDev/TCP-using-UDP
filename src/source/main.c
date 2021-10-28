@@ -43,7 +43,7 @@ typedef enum sendMode send_mode_t;
 
 send_mode_t parseMode(char *mode)
 {
-    if (strcmp(mode, "stop and wait") != 0)
+    if (strcmp(mode, "stop-wait") != 0)
         return STOP_AND_WAIT;
     if (strcmp(mode, "go-back-n") != 0)
         return GO_BACK_N;
@@ -164,17 +164,6 @@ struct flux
 
 typedef struct flux *flux_t;
 
-/*
- *
- *     int packetNb = len / 42;
-
-    int fluxCount = 1;
-    fluxes[0] = malloc(sizeof(struct flux));
-    fluxes[0]->fluxId = 0;
-    fluxes[0]->congestionWindowSize = 52;
-    fluxes[0]->currentIndex = 0;
- *
- */
 noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int fluxCount)
 {
     // not connected
@@ -189,6 +178,8 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
 
     do
     {
+        ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
+
         for (int i = 0; i < fluxCount; ++i)
         {
 
@@ -198,7 +189,7 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
 
             if (!first)
             {
-                ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
+
 
                 if (ret < 0) // timeout // Y'a probleme!!!
                 {
@@ -295,20 +286,15 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
     close(pipefd[1]);
 
     // cb de packets il faut envoyer pour ce flux
-    int packetNb = flux->bufLen / 44;
-    int currentAckNb = 0;
-    int currSeq = 0;
+    int packetNb = flux->bufLen / PACKET_DATA_SIZE, currentAckNb = 0;
     struct packet receivedPacket;
     bool first = true;
     struct timeval timeout;
     timeout.tv_sec = 0;
     timeout.tv_usec = 100;
     fd_set working_set;
-    int ret;
-    int ecnCount = 0;
-    int timeoutCount = 0;
-    int packetsDone = 0;
-    int ackCounter = 0;
+    int ret, ecnCount = 0, timeoutCount = 0, packetsDone = 0, ackCounter = 0;
+    int congestionWindowSize = 52;
     uint8_t lastReceivedACK = 0;
     packet_t currentPackets[UINT8_MAX];
 
@@ -318,7 +304,6 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
     do
     {
         // Nombre de places dans la fenêtre
-        bool new = false;
 
         if (!first)
         {
@@ -335,12 +320,35 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                 if (!(receivedPacket.type & ACK))
                     continue;
 
+                // Si l'ACQ passe cette condition alors il est valide
                 if (receivedPacket.numAcquittement == currentAckNb + 1)
                     currentAckNb++;
 
+                // Checker s'il n'y a pas 3 fois les mêmes ACK
                 if (lastReceivedACK == receivedPacket.numAcquittement)
                 {
                     ackCounter++;
+
+                    if (ackCounter >= 3)
+                    {
+                        // Attention 3 ACK recu, probleme!
+                        congestionWindowSize = 52;
+
+                        // On reset tout !
+
+                        for (int i = 0; i < currentAckNb; ++i)
+                        {
+                            destroyPacket(currentPackets[i]);
+                            currentPackets[i] = NULL;
+                        }
+
+                        packetsDone += currentAckNb;
+
+                        currentAckNb = 0;
+                        timeoutCount = 0;
+                        ecnCount = 0;
+                    }
+
                 } else
                 {
                     ackCounter = 0;
@@ -350,30 +358,25 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                 // Si bit ECN alors flux recoit fenêtre congestion plus petite
                 if (receivedPacket.ECN > 0)
                 {
-                    flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
-                }
-
-                if (ackCounter >= 3)
-                {
-                    // Attention 3 ACK recu, probleme!
+                    ecnCount++;
                 }
 
             }
 
         }
 
-        int windowSize = flux->congestionWindowSize / 52;
+        int windowSize = congestionWindowSize / 52;
 
-        if (currentAckNb > windowSize)
+        if (currentAckNb >= windowSize)
         {
             // reinitialise tout ici
-            flux->congestionWindowSize += 52 * currentAckNb;
+            congestionWindowSize += 52 * currentAckNb;
 
             for (int i = 0; i < timeoutCount; ++i)
-                flux->congestionWindowSize /= 2;
+                congestionWindowSize /= 2;
 
             for (int i = 0; i < ecnCount; ++i)
-                flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
+                congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
 
             for (int i = 0; i < currentAckNb; ++i)
             {
@@ -395,7 +398,8 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                 } else
                 {
                     newPacket(packet);
-                    setPacket(packet, flux->fluxId, 0, i, 0, 0, 52, substr(flux->buf, i * 44, (i + 1) * 44));
+                    setPacket(packet, flux->fluxId, 0, i, 0, 0, 52,
+                              substr(flux->buf, (packetsDone + i) * 44, (packetsDone + i + 1) * 44));
                     currentPackets[i] = packet;
                 }
 
@@ -446,7 +450,7 @@ int main(int argc, char *argv[])
 
     if (mode == UNKNOWN)
     {
-        fprintf(stderr, "Usage: <mode> must be either 'stop and wait' or 'go-back-n'\n");
+        fprintf(stderr, "Usage: <mode> must be either 'stop-wait' or 'go-back-n'\n");
         exit(1);
     }
 
