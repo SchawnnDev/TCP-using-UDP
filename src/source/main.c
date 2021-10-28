@@ -154,39 +154,68 @@ struct flux
     int fluxId;
     int congestionWindowSize;
     int currentIndex;
-    packet_t packets[UINT16_MAX];
+    packet_t packets[UINT8_MAX];
+    char* buf;
+    int bufLen;
 };
 
 typedef struct flux *flux_t;
 
+/*
+ *
+ *     int packetNb = len / 42;
 
-noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, char *buf, int len)
+    int fluxCount = 1;
+    fluxes[0] = malloc(sizeof(struct flux));
+    fluxes[0]->fluxId = 0;
+    fluxes[0]->congestionWindowSize = 52;
+    fluxes[0]->currentIndex = 0;
+ *
+ */
+noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int fluxCount)
 {
     // not connected
     if (socket->status != ESTABLISHED)
         return -1;
 
     // Nombre de packets qu'il va falloir envoyer
-    int packetNb = len / 42;
-    packet_t packets[UINT16_MAX];
-
-    int fluxCount = 1;
-    flux_t fluxes[1];
-    fluxes[0] = malloc(sizeof(struct flux));
-    fluxes[0]->fluxId = 0;
-    fluxes[0]->congestionWindowSize = 52;
-    fluxes[0]->currentIndex = 0;
+    int first = 1;
+    int ret;
+    char buf[42];
 
     do
     {
 
+        if(!first)
+        {
+
+            ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
+
+            if (ret < 0) // timeout
+            {
+                // Y'a probleme!!!
+            }
+
+            // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
+           // parsePacket(packet, data);
+
+
+        } else {
+            first = 0;
+        }
 
         for (int i = 0; i < fluxCount; ++i)
         {
             flux_t flux = fluxes[i];
-
-            for (int j = 0; j < flux->congestionWindowSize / 52; ++j)
+            int windowSize = flux->congestionWindowSize / 52;
+            int index = flux->currentIndex;
+            for (int j = 0; j < windowSize; ++j)
             {
+                packet_t packet = malloc(sizeof(struct packet));
+                setPacket(packet, flux->fluxId, 0, index++, 0, 0, 0, "");
+                sendPacket(socket->outSocket, packet, socket->sockaddr);
+
+                if()
 
             }
 

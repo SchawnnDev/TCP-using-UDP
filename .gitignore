@@ -3,6 +3,7 @@ doc/report.pdf
 .vs/
 .idea/
 bin/
+src/source/test.c
 
 # Prerequisites
 *.d
