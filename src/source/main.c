@@ -11,6 +11,7 @@
 #include <time.h>
 #include <sys/poll.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "../../headers/global/utils.h"
 #include "../../headers/global/packet.h"
@@ -153,7 +154,9 @@ struct flux
 {
     int fluxId;
     int congestionWindowSize;
-    int currentIndex;
+    int lastReceivedACK;
+    int ackCounter;
+    int lastSentSeq;
     packet_t packets[UINT8_MAX];
     char* buf;
     int bufLen;
@@ -179,47 +182,84 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int
         return -1;
 
     // Nombre de packets qu'il va falloir envoyer
-    int first = 1;
-    int ret;
+    bool first = true;
+    bool timeout;
+    ssize_t ret;
     char buf[42];
 
     do
     {
-
-        if(!first)
-        {
-
-            ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
-
-            if (ret < 0) // timeout
-            {
-                // Y'a probleme!!!
-            }
-
-            // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-           // parsePacket(packet, data);
-
-
-        } else {
-            first = 0;
-        }
-
         for (int i = 0; i < fluxCount; ++i)
         {
+
             flux_t flux = fluxes[i];
+            packet_t receivedPacket = NULL;
+            timeout = false;
+
+            if(!first)
+            {
+                ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
+
+                if (ret < 0) // timeout // Y'a probleme!!!
+                {
+                    timeout = true;
+                } else {
+                    receivedPacket = malloc(sizeof(struct packet));
+                    parsePacket(receivedPacket, buf);
+
+                    if(!(receivedPacket->type & ACK))
+                    {
+                        destroyPacket(receivedPacket);
+                        continue;
+                    }
+
+                    // on estime que le flux existe vraiment
+                    flux = fluxes[receivedPacket->idFlux];
+                }
+            }
+
+            // Si bit ECN alors flux recoit fenêtre congestion plus petite
+            if(!timeout && receivedPacket->ECN > 0)
+            {
+                flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
+            }
+
             int windowSize = flux->congestionWindowSize / 52;
-            int index = flux->currentIndex;
+
+            if(flux->lastReceivedACK == receivedPacket->numAcquittement)
+            {
+                flux->ackCounter++;
+            } else {
+                flux->ackCounter = 0;
+            }
+
+            if(flux->ackCounter >= 3)
+            {
+                // Attention 3 ACK recu, probleme!
+            }
+
+            if(flux->lastReceivedACK + 1 != receivedPacket->numAcquittement)
+            {
+                // on veut que l'acquittement soit égal au dernier + 1
+            }
+
             for (int j = 0; j < windowSize; ++j)
             {
                 packet_t packet = malloc(sizeof(struct packet));
-                setPacket(packet, flux->fluxId, 0, index++, 0, 0, 0, "");
+                setPacket(packet, flux->fluxId, 0, ++flux->lastSentSeq, 0, 0, 0, "");
                 sendPacket(socket->outSocket, packet, socket->sockaddr);
 
-                if()
+               // if()
 
             }
 
+            if(receivedPacket != NULL)
+                destroyPacket(receivedPacket);
+
         }
+
+
+        first = false;
 
 
     } while (1);
