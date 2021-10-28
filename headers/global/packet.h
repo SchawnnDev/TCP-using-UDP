@@ -42,7 +42,7 @@ struct packet
     uint16_t numAcquittement;
     uint8_t ECN;
     uint8_t tailleFenetre;
-    char data[42];
+    char data[44];
 };
 
 typedef struct packet *packet_t;
@@ -119,7 +119,7 @@ int setPacket(packet_t packet, uint8_t id, uint8_t type,
     packet->tailleFenetre = size;
 
     int r;
-    if((r = snprintf(packet->data, 42, "%s", data)) >= 42 || r < 0)
+    if((r = snprintf(packet->data, 44, "%s", data)) >= 44 || r < 0)
         return -1;
 
     return 0;
@@ -144,7 +144,7 @@ void parsePacket(packet_t packet, const char *data)
     packet->ECN = data[6];
     packet->tailleFenetre = data[7];
 
-    for (int i = 8; i < 42; ++i)
+    for (int i = 8; i < 44; ++i)
         packet->data[i - 8] = data[i];
 }
 

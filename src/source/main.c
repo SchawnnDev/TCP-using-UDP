@@ -185,7 +185,7 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
     bool first = true;
     bool timeout;
     ssize_t ret;
-    char buf[42];
+    char buf[44];
 
     do
     {
@@ -295,7 +295,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
     close(pipefd[1]);
 
     // cb de packets il faut envoyer pour ce flux
-    int packetNb = flux->bufLen / 42;
+    int packetNb = flux->bufLen / 44;
     int currentAckNb = 0;
     int currSeq = 0;
     struct packet receivedPacket;
@@ -335,7 +335,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                 if (!(receivedPacket.type & ACK))
                     continue;
 
-                if(receivedPacket.numAcquittement == currentAckNb + 1)
+                if (receivedPacket.numAcquittement == currentAckNb + 1)
                     currentAckNb++;
 
                 if (lastReceivedACK == receivedPacket.numAcquittement)
@@ -353,39 +353,16 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                     flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
                 }
 
-
-                if (flux->ackCounter >= 3)
+                if (ackCounter >= 3)
                 {
                     // Attention 3 ACK recu, probleme!
                 }
-
-                if (flux->lastReceivedACK + 1 != receivedPacket->numAcquittement)
-                {
-                    // on veut que l'acquittement soit égal au dernier + 1
-                }
-
 
             }
 
         }
 
         int windowSize = flux->congestionWindowSize / 52;
-
-        for (int i = currentAckNb; i <= windowSize; ++i)
-        {
-            packet_t packet = NULL;
-            if (currentPackets[i] != NULL)
-            {
-                packet = currentPackets[i];
-            } else
-            {
-                newPacket(packet);
-                setPacket(packet, flux->fluxId, 0, i, 0, 0, 52, substr(flux->buf, i * 42, (i + 1) * 42));
-                currentPackets[i] = packet;
-            }
-
-            sendPacket(socket->outSocket, packet, socket->sockaddr);
-        }
 
         if (currentAckNb > windowSize)
         {
@@ -407,8 +384,24 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
             currentAckNb = 0;
             timeoutCount = 0;
             ecnCount = 0;
-        }
+        } else
+        {
+            for (int i = currentAckNb; i <= windowSize; ++i)
+            {
+                packet_t packet = NULL;
+                if (currentPackets[i] != NULL)
+                {
+                    packet = currentPackets[i];
+                } else
+                {
+                    newPacket(packet);
+                    setPacket(packet, flux->fluxId, 0, i, 0, 0, 52, substr(flux->buf, i * 44, (i + 1) * 44));
+                    currentPackets[i] = packet;
+                }
 
+                sendPacket(socket->outSocket, packet, socket->sockaddr);
+            }
+        }
 
         first = false;
 
@@ -417,7 +410,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
 
         ret = select(pipefd[0] + 1, &working_set, NULL, NULL, &timeout);
 
-        if(ret == -1) raler("select");
+        if (ret == -1) raler("select");
 
     } while (packetsDone < packetNb);
 
