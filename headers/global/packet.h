@@ -1,6 +1,8 @@
 #ifndef _PACKET_H
 #define _PACKET_H
 
+#define PACKET_DATA_SIZE 42
+
 uint8_t ACK = 0x10;
 uint8_t RST = 0x04;
 uint8_t FIN = 0x02;
@@ -42,7 +44,7 @@ struct packet
     uint16_t numAcquittement;
     uint8_t ECN;
     uint8_t tailleFenetre;
-    char data[42];
+    char data[PACKET_DATA_SIZE];
 };
 
 typedef struct packet *packet_t;

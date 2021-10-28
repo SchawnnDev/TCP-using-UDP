@@ -1,12 +1,7 @@
-#include <stdnoreturn.h>
-#include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
@@ -23,20 +18,43 @@ enum status
 };
 typedef enum status status_t;
 
+struct flux
+{
+    uint8_t last_ack;
+    size_t size;
+    char *data;
+};
+typedef struct flux *flux_t;
+
 struct tcp
 {
+    flux_t flux[UINT8_MAX];
+    status_t status;
     packet_t packet;
     int inSocket;
     int outSocket;
     struct sockaddr *sockaddr;
-    status_t status;
-    uint8_t flux[UINT8_MAX];
 };
 typedef struct tcp *tcp_t;
+
+void allocFlux(tcp_t tcp)
+{
+    // pas nécessaire ? realloc alloue de toute façon, à tester
+    for(uint8_t i = 0; i < UINT8_MAX; i++)
+        tcp->flux[i] = malloc(PACKET_DATA_SIZE);
+}
+
+void destroyFlux(tcp_t tcp)
+{
+    for(uint8_t i = 0; i < UINT8_MAX; i++)
+        free(tcp->flux[i]);
+}
 
 tcp_t createTcp(char *ip, int port_local, int port_medium)
 {
     tcp_t tcp = malloc(sizeof(struct tcp));
+
+    allocFlux(tcp);
     tcp->status = DISCONNECTED;
     tcp->packet = newPacket();
 
@@ -66,8 +84,67 @@ void destroyTcp(tcp_t tcp)
     closeSocket(tcp->outSocket);
     closeSocket(tcp->inSocket);
     destroyPacket(tcp->packet);
+    destroyFlux(tcp);
     free(tcp);
 }
+
+uint8_t checkPacket(tcp_t tcp, uint8_t idFlux)
+{
+    uint8_t last_ack = tcp->flux[idFlux];
+    if(tcp->packet->numAcquittement == last_ack + 1)
+        tcp->flux[idFlux]++;
+    return tcp->flux[idFlux];
+}
+
+void sendACK(tcp_t tcp)
+{
+
+    uint8_t idFlux = tcp->packet->idFlux;
+    uint8_t numAcq = checkPacket(tcp, idFlux);
+    uint8_t ECN = tcp->packet->ECN;
+    uint8_t size = tcp->packet->tailleFenetre;
+
+    if(setPacket(tcp->packet, idFlux, ACK, numAcq, numAcq, ECN, size, "") == -1)
+    {
+        destroyPacket(tcp->packet);
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
+        raler("snprintf");
+    }
+
+    if(sendPacket(tcp->outSocket, tcp->packet, tcp->sockaddr) == -1)
+    {
+        destroyPacket(tcp->packet);
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
+        raler("sendto");
+    }
+}
+
+void storeData(tcp_t tcp, uint8_t idFlux, char *data)
+{
+    int r = 0;
+    size_t size = tcp->flux[idFlux]->size + PACKET_DATA_SIZE;
+    tcp->flux[idFlux]->data = realloc(tcp->flux[idFlux]->data, size);
+    if((r = snprintf(tcp->flux[idFlux]->data, size, "%s", data)) >= size || r < 0)
+        destroyTcp(tcp);
+}
+
+void handleTcp(tcp_t tcp)
+{
+    while(1)
+    {
+        if(recvPacket(tcp->packet, tcp->inSocket, 52) == -1)
+        {
+            destroyTcp(tcp);
+            raler("recvfrom");
+        }
+        if(tcp->packet->type == FIN) // end
+            break;
+        storeData(tcp, tcp->packet->idFlux, tcp->packet->data);
+        sendACK(tcp);
+    }
+};
 
 void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start, status_t end)
 {
@@ -121,39 +198,6 @@ void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start,
     }
 }
 
-uint8_t checkPacket(tcp_t tcp, uint8_t idFlux)
-{
-    uint8_t last_ack = tcp->flux[idFlux];
-    if(tcp->packet->numAcquittement == last_ack + 1)
-        tcp->flux[idFlux]++;
-    return tcp->flux[idFlux];
-}
-
-void sendACK(tcp_t tcp)
-{
-
-    uint8_t idFlux = tcp->packet->idFlux;
-    uint8_t numAcq = checkPacket(tcp, idFlux);
-    uint8_t ECN = tcp->packet->ECN;
-    uint8_t size = tcp->packet->tailleFenetre;
-
-    if(setPacket(tcp->packet, idFlux, ACK, numAcq, numAcq, ECN, size, "") == -1)
-    {
-        destroyPacket(tcp->packet);
-        closeSocket(tcp->outSocket);
-        closeSocket(tcp->inSocket);
-        raler("snprintf");
-    }
-
-    if(sendPacket(tcp->outSocket, tcp->packet, tcp->sockaddr) == -1)
-    {
-        destroyPacket(tcp->packet);
-        closeSocket(tcp->outSocket);
-        closeSocket(tcp->inSocket);
-        raler("sendto");
-    }
-}
-
 /********************************
  * Main program
  * *******************************/
@@ -180,25 +224,11 @@ int main(int argc, char *argv[])
     printf("Destination port set at : %d\n", port_medium);
     printf("---------------\n");
 
-    tcp_t tcp = createTcp(ip, port_local, port_medium);
-
     // open connection
+    tcp_t tcp = createTcp(ip, port_local, port_medium);
     handleConnection(tcp->packet, tcp, SYN, DISCONNECTED, ESTABLISHED);
 
-    // handlePackets
-    while(1)
-    {
-        if(recvPacket(tcp->packet, tcp->inSocket, 52) == -1)
-        {
-            destroyPacket(tcp->packet);
-            closeSocket(tcp->outSocket);
-            closeSocket(tcp->inSocket);
-            raler("recvfrom");
-        }
-        if(tcp->packet->type == FIN) // end
-            break;
-        sendACK(tcp);
-    }
+    handleTcp(tcp->packet);
 
     // close connection
     handleConnection(tcp->packet, tcp, FIN, ESTABLISHED, DISCONNECTED);
