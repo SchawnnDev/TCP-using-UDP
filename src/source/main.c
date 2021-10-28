@@ -158,7 +158,7 @@ struct flux
     int ackCounter;
     int lastSentSeq;
     packet_t packets[UINT8_MAX];
-    char* buf;
+    char *buf;
     int bufLen;
 };
 
@@ -175,7 +175,7 @@ typedef struct flux *flux_t;
     fluxes[0]->currentIndex = 0;
  *
  */
-noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int fluxCount)
+noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int fluxCount)
 {
     // not connected
     if (socket->status != ESTABLISHED)
@@ -196,18 +196,19 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int
             packet_t receivedPacket = NULL;
             timeout = false;
 
-            if(!first)
+            if (!first)
             {
                 ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
 
                 if (ret < 0) // timeout // Y'a probleme!!!
                 {
                     timeout = true;
-                } else {
+                } else
+                {
                     receivedPacket = malloc(sizeof(struct packet));
                     parsePacket(receivedPacket, buf);
 
-                    if(!(receivedPacket->type & ACK))
+                    if (!(receivedPacket->type & ACK))
                     {
                         destroyPacket(receivedPacket);
                         continue;
@@ -219,26 +220,27 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int
             }
 
             // Si bit ECN alors flux recoit fenêtre congestion plus petite
-            if(!timeout && receivedPacket->ECN > 0)
+            if (!timeout && receivedPacket->ECN > 0)
             {
                 flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
             }
 
             int windowSize = flux->congestionWindowSize / 52;
 
-            if(flux->lastReceivedACK == receivedPacket->numAcquittement)
+            if (flux->lastReceivedACK == receivedPacket->numAcquittement)
             {
                 flux->ackCounter++;
-            } else {
+            } else
+            {
                 flux->ackCounter = 0;
             }
 
-            if(flux->ackCounter >= 3)
+            if (flux->ackCounter >= 3)
             {
                 // Attention 3 ACK recu, probleme!
             }
 
-            if(flux->lastReceivedACK + 1 != receivedPacket->numAcquittement)
+            if (flux->lastReceivedACK + 1 != receivedPacket->numAcquittement)
             {
                 // on veut que l'acquittement soit égal au dernier + 1
             }
@@ -249,11 +251,11 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int
                 setPacket(packet, flux->fluxId, 0, ++flux->lastSentSeq, 0, 0, 0, "");
                 sendPacket(socket->outSocket, packet, socket->sockaddr);
 
-               // if()
+                // if()
 
             }
 
-            if(receivedPacket != NULL)
+            if (receivedPacket != NULL)
                 destroyPacket(receivedPacket);
 
         }
@@ -269,6 +271,159 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t* fluxes, int
     return 0;
 }
 
+// Following function extracts characters present in `src`
+// between `m` and `n` (excluding `n`)
+char *substr(const char *src, int m, int n)
+{
+    // get the length of the destination string
+    int len = n - m;
+
+    // allocate (len + 1) chars for destination (+1 for extra null character)
+    char *dest = (char *) malloc(sizeof(char) * (len + 1));
+
+    // start with m'th char and copy `len` chars into the destination
+    strncpy(dest, (src + m), len);
+
+    // return the destination string
+    return dest;
+}
+
+
+void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
+{
+    // on close le pipe write
+    close(pipefd[1]);
+
+    // cb de packets il faut envoyer pour ce flux
+    int packetNb = flux->bufLen / 42;
+    int currentAckNb = 0;
+    int currSeq = 0;
+    struct packet receivedPacket;
+    bool first = true;
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100;
+    fd_set working_set;
+    int ret;
+    int ecnCount = 0;
+    int timeoutCount = 0;
+    int packetsDone = 0;
+    int ackCounter = 0;
+    uint8_t lastReceivedACK = 0;
+    packet_t currentPackets[UINT8_MAX];
+
+    for (int i = 0; i < UINT8_MAX; ++i)
+        currentPackets[i] = NULL;
+
+    do
+    {
+        // Nombre de places dans la fenêtre
+        bool new = false;
+
+        if (!first)
+        {
+
+            if (ret == 0) // TIMEOUT
+            {
+                timeoutCount++;
+            } else
+            {
+                if (read(pipefd[0], &receivedPacket, 52) != 52)
+                    raler("read pipe");
+
+                // on attend un ack
+                if (!(receivedPacket.type & ACK))
+                    continue;
+
+                if(receivedPacket.numAcquittement == currentAckNb + 1)
+                    currentAckNb++;
+
+                if (lastReceivedACK == receivedPacket.numAcquittement)
+                {
+                    ackCounter++;
+                } else
+                {
+                    ackCounter = 0;
+                    lastReceivedACK = receivedPacket.numAcquittement;
+                }
+
+                // Si bit ECN alors flux recoit fenêtre congestion plus petite
+                if (receivedPacket.ECN > 0)
+                {
+                    flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
+                }
+
+
+                if (flux->ackCounter >= 3)
+                {
+                    // Attention 3 ACK recu, probleme!
+                }
+
+                if (flux->lastReceivedACK + 1 != receivedPacket->numAcquittement)
+                {
+                    // on veut que l'acquittement soit égal au dernier + 1
+                }
+
+
+            }
+
+        }
+
+        int windowSize = flux->congestionWindowSize / 52;
+
+        for (int i = currentAckNb; i <= windowSize; ++i)
+        {
+            packet_t packet = NULL;
+            if (currentPackets[i] != NULL)
+            {
+                packet = currentPackets[i];
+            } else
+            {
+                newPacket(packet);
+                setPacket(packet, flux->fluxId, 0, i, 0, 0, 52, substr(flux->buf, i * 42, (i + 1) * 42));
+                currentPackets[i] = packet;
+            }
+
+            sendPacket(socket->outSocket, packet, socket->sockaddr);
+        }
+
+        if (currentAckNb > windowSize)
+        {
+            // reinitialise tout ici
+            flux->congestionWindowSize += 52 * currentAckNb;
+
+            for (int i = 0; i < timeoutCount; ++i)
+                flux->congestionWindowSize /= 2;
+
+            for (int i = 0; i < ecnCount; ++i)
+                flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
+
+            for (int i = 0; i < currentAckNb; ++i)
+            {
+                destroyPacket(currentPackets[i]);
+                currentPackets[i] = NULL;
+            }
+
+            currentAckNb = 0;
+            timeoutCount = 0;
+            ecnCount = 0;
+        }
+
+
+        first = false;
+
+        FD_ZERO(&working_set);
+        FD_SET(pipefd[0], &working_set);
+
+        ret = select(pipefd[0] + 1, &working_set, NULL, NULL, &timeout);
+
+        if(ret == -1) raler("select");
+
+    } while (packetsDone < packetNb);
+
+
+}
+
 /**
  *
  * @param socket
@@ -280,71 +435,6 @@ void closeTcpSocket(tcp_socket_t socket)
     close(socket->outSocket);
     free(socket);
 }
-
-/**
- *  Si le status est disconnected, c'est qu'aucun packet n'a encore été échangé avec le serveur.
- *  Si le status est wait, alors
- *  CLI: A: numSeq = random ; puis envoi syn au serveur
- *  SERVER: B: numSeq = random ; envoi syn au cli + ack => (A + 1)
- *  CLI: syn: numSeq = B ;
- *
- */
-connection_status_t
-proceedHandshake(connection_status_t status, struct sockaddr *sockaddr, int inSocket, int outSocket, int a)
-{
-    packet_t packet = NULL;
-    if (newPacket(packet) == -1)
-    {
-        closeSocket(outSocket);
-        closeSocket(inSocket);
-        raler("newPacket");
-    }
-
-    if (status == DISCONNECTED)
-    {
-        if (setPacket(packet, 0, SYN, a, 0, ECN_DISABLED, 52, "") == -1)
-        {
-            destroyPacket(packet);
-            closeSocket(outSocket);
-            closeSocket(inSocket);
-            raler("snprintf");
-        }
-        if (sendPacket(outSocket, packet, sockaddr) == -1)
-        {
-            destroyPacket(packet);
-            closeSocket(outSocket);
-            closeSocket(inSocket);
-            raler("sendto");
-        }
-        destroyPacket(packet);
-        return WAITING_SYN_ACK;
-    }
-    // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-    if (recvPacket(packet, inSocket, 52) == -1)
-    {
-        destroyPacket(packet);
-        closeSocket(outSocket);
-        closeSocket(inSocket);
-        raler("recvfrom");
-    }
-
-    int b = packet->numSequence;
-    packet->type = ACK;
-    packet->numSequence = a + 1;
-    packet->numAcquittement = b + 1;
-
-    if (sendPacket(outSocket, packet, sockaddr) == -1)
-    {
-        destroyPacket(packet);
-        closeSocket(outSocket);
-        closeSocket(inSocket);
-        raler("sendto");
-    }
-    destroyPacket(packet);
-
-    return ESTABLISHED;
-}
-
 
 /********************************
  * Main program
@@ -403,115 +493,6 @@ int main(int argc, char *argv[])
     }
 
     srand(time(NULL));
-
-    int numSeq = rand() % (UINT16_MAX / 2);
-    int ret = 0;
-    struct pollfd fds[1];
-    fds[0].fd = inSocket;
-    fds[0].events = POLLIN;
-
-    int timeout = 100; // 100ms
-
-
-
-    int congestionWindowSize = 52;
-    printf("Pour eviter erreur dans makefile, SIZE : %d\n", congestionWindowSize);
-
-
-    /**
-     * 3. une division de la fenêtre de congestion par deux lorsqu’une perte est détectée par l’expiration d’un timer,
-     * 4. un retour de la fenêtre de congestion à 52 octets lors de la détection d’une perte par la réception de 3 acquis dupliqués.
-     * 5. une réduction de la fenêtre de congestion de 10% lors de la réception d’un message avec le champ ECN > 0
-     */
-
-    do
-    {
-        // Poll timeout
-        if (ret == 0)
-        {
-            /*
-             * S'il y'a timeout, si connectionStatus est waiting syn ack
-             * alors on disconnecte, car le packet a peut-être été perdu
-             */
-            if (connectionStatus == WAITING_SYN_ACK)
-            {
-                connectionStatus = DISCONNECTED;
-            } else if (connectionStatus == ESTABLISHED && packetStatus == WAITING_ACK)
-            {
-                // S'il y'a timeout ici, et qu'on est dans le gas du go back n,
-                // on reduit la taille de la fenêtre à 52.
-                if (mode == GO_BACK_N)
-                    congestionWindowSize = 52;
-
-                packetStatus = CAN_SEND_PACKET; // On souhaite renvoyer le packet
-            }
-
-        } else
-        {
-
-            if (connectionStatus != DISCONNECTED)
-            {
-                // Socket readable
-                if (fds[0].revents & POLLIN)
-                {
-
-                    if (connectionStatus == WAITING_SYN_ACK)
-                    {
-                        connectionStatus = proceedHandshake(connectionStatus, sockaddr, inSocket, outSocket, numSeq);
-                    } else if (connectionStatus == ESTABLISHED && packetStatus == WAITING_ACK)
-                    {
-
-                        // Traiter ici le stop & wait et le go back n
-
-                        if (mode == STOP_AND_WAIT)
-                        {
-                            // num seq 0 ou 1 ici
-                        } else
-                        { // GO BACK N (unknown impossible)
-                            // changement num seq && augmentation taille
-                        }
-
-                        packetStatus = CAN_SEND_PACKET;
-                    } else
-                    {
-                        // WTF ??!?
-                    }
-
-                }
-
-            }
-
-        }
-
-        if (connectionStatus == DISCONNECTED || connectionStatus == WAITING_SYN_ACK)
-        {
-            connectionStatus = proceedHandshake(connectionStatus, sockaddr, inSocket, outSocket, numSeq);
-            continue;
-        }
-
-        if (connectionStatus == ESTABLISHED)
-        {
-
-            if (mode == STOP_AND_WAIT)
-            {
-
-            } else
-            {
-
-            }
-
-        }
-
-    } while ((ret = poll(fds, 1, timeout) != -1));
-
-    if (ret == -1)
-    {
-        perror("poll");
-        return -1;
-    }
-
-    closeSocket(outSocket);
-    closeSocket(inSocket);
 
     return 0;
 }
