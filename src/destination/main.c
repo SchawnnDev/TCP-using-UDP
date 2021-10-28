@@ -167,7 +167,7 @@ void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start,
     uint8_t numAcq = packet->numSequence + 1;
     srand(time(NULL));
     uint8_t numSeq = rand() % (UINT16_MAX / 2);
-    if(setPacket(packet, idFlux, SYN+ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
+    if(setPacket(packet, idFlux, type | ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
     {
         destroyPacket(packet);
         closeSocket(tcp->outSocket);
