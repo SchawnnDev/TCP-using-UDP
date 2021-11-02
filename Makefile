@@ -69,8 +69,8 @@ destination: title_dst
 	@./bin/destination "127.0.0.1" 6666 5555
 
 medium: title_med
-	@python3 tools/medium.py -v -s
-	# @python3 tools/medium.py -v -s -e -l 100
+	@python3 tools/medium/medium.py -v -s
+	# @python3 tools/medium/medium.py -v -s -e -l 100
 
 # Utils
 
