@@ -23,7 +23,7 @@ void closeSocket(int socket);
  * @param   port       Port the socket will be linked to
  * @return  Structure handling the adress
  */
-struct sockaddr_in prepareSendSocket(int socket, char *address, int port);
+struct sockaddr_in *prepareSendSocket(int socket, char *address, int port);
 
 /**
  * @fn      int prepareRecvSocket(int sock, int port)
@@ -42,7 +42,7 @@ int prepareRecvSocket(int socket, int port);
  * @param   sockaddr    Destination address
  * @return  -1 if an error has occurred, else 0
  */
-int sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr);
+int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr);
 
 /**
  * @fn      packet_t recvPacket(int socket, int size)
@@ -57,42 +57,36 @@ int recvPacket(packet_t packet, int socket, int size);
 /* FUNCTIONS */
 /*///////////*/
 
-int createSocket()
-{
+int createSocket() {
     return socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 }
 
-void closeSocket(int socket)
-{
+void closeSocket(int socket) {
     if (close(socket) < 0)
         raler("socket");
 }
 
-struct sockaddr_in prepareSendSocket(int socket, char *address, int port)
-{
-    struct in_addr addIP;
-    if (inet_aton(address, &addIP) == 0)
-    {
+struct sockaddr_in *prepareSendSocket(int socket, char *address, int port) {
+    struct sockaddr_in *sockAddr = malloc(sizeof(struct sockaddr_in));
+
+    if (inet_pton(AF_INET, address, &(sockAddr->sin_addr)) <= 0) {
         closeSocket(socket);
-        raler("aton");
+        raler("inet_pton");
     }
 
-    struct sockaddr_in socketAddr;
-    memset(&socketAddr, 0, sizeof(socketAddr));
-    socketAddr.sin_family = AF_INET;
-    socketAddr.sin_port = htons(port);
-    socketAddr.sin_addr.s_addr = addIP.s_addr;
+    sockAddr->sin_port = htons(port);
+    sockAddr->sin_family = AF_INET;
 
-    return socketAddr;
+    return sockAddr;
 }
 
 // pk int ici ? on a deja le sock
-int prepareRecvSocket(int socket, int port)
-{
+int prepareRecvSocket(int socket, int port) {
     struct sockaddr_in socketAddr;
     memset(&socketAddr, 0, sizeof(socketAddr));
     socketAddr.sin_family = AF_INET;
     socketAddr.sin_port = htons(port);
+    printf("prepareRcv port: %d, new: %d\n", port, htons(port));
     socketAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
@@ -103,16 +97,9 @@ int prepareRecvSocket(int socket, int port)
     return 0;
 }
 
-int sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr)
-{
-    char *bytes_arr = malloc(packet->tailleFenetre);
-    memcpy(bytes_arr, packet, packet->tailleFenetre);
-
-    if (sendto(socket, bytes_arr, packet->tailleFenetre, 0, sockaddr, sizeof(*sockaddr)) == -1)
-        return -1;
-
-    free(bytes_arr);
-    return 0;
+int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr) {
+    struct sockaddr *sp = (struct sockaddr *) &(*sockaddr);
+    return sendto(socket, packet, 52, 0, sp, sizeof(*sp)) == -1 ? -1 : 0;
 }
 
 int recvPacket(packet_t packet, int socket, int size) {

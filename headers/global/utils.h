@@ -1,6 +1,10 @@
 #ifndef _UTILS_H
 #define _UTILS_H
 
+#include <stdnoreturn.h>
+#include <errno.h>
+#include <limits.h>
+
 /**
  * @fn      noreturn void raler(char *message)
  * @brief   Displays a message when an error has occured
