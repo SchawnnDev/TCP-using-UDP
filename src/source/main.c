@@ -17,8 +17,7 @@
 #include "../../headers/global/packet.h"
 #include "../../headers/global/socket_utils.h"
 
-enum connectionStatus
-{
+enum connectionStatus {
     DISCONNECTED = 0x0,
     WAITING_SYN_ACK = 0x1,
     ESTABLISHED = 0x2
@@ -26,23 +25,20 @@ enum connectionStatus
 
 typedef enum connectionStatus connection_status_t;
 
-enum packetStatus
-{
+enum packetStatus {
     CAN_SEND_PACKET = 0,
     WAITING_ACK = 1
 };
 
 typedef enum packetStatus packet_status_t;
 
-enum sendMode
-{
+enum sendMode {
     UNKNOWN = -1, STOP_AND_WAIT = 0, GO_BACK_N = 1
 };
 
 typedef enum sendMode send_mode_t;
 
-send_mode_t parseMode(char *mode)
-{
+send_mode_t parseMode(char *mode) {
     if (strcmp(mode, "stop-wait") != 0)
         return STOP_AND_WAIT;
     if (strcmp(mode, "go-back-n") != 0)
@@ -50,12 +46,11 @@ send_mode_t parseMode(char *mode)
     return UNKNOWN; // Default
 }
 
-struct tcpSocket
-{
+struct tcpSocket {
     int inSocket;
     int outSocket;
     int numSeq;
-    struct sockaddr *sockaddr;
+    struct sockaddr_in *sockaddr;
     connection_status_t status;
 };
 
@@ -68,26 +63,24 @@ typedef struct tcpSocket *tcp_socket_t;
  * @param destinationPort
  * @return NULL if error
  */
-tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
-{
+tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort) {
     tcp_socket_t sock = malloc(sizeof(struct tcpSocket));
     sock->inSocket = createSocket();
     sock->outSocket = createSocket();
     sock->status = DISCONNECTED;
 
     // vers destination
-    struct sockaddr_in sockaddr = prepareSendSocket(sock->outSocket, ip, destinationPort);
-    sock->sockaddr = (struct sockaddr *) &sockaddr; // marche peut-être pas ??
+    struct sockaddr_in* sockaddr = prepareSendSocket(sock->outSocket, ip, destinationPort);
+    sock->sockaddr =sockaddr; // marche peut-être pas ??
 
     // On set un timeout de 100 ms
     struct timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 100000;
+    tv.tv_usec = 2000000;
 
     // depuis destination
     if (prepareRecvSocket(sock->inSocket, localPort) < 0 ||
-        setsockopt(sock->inSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
-    {
+        setsockopt(sock->inSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
         close(sock->inSocket);
         close(sock->outSocket);
         free(sock);
@@ -103,11 +96,9 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
     char data[52];
     packet_t packet = malloc(sizeof(struct packet));
 
-    do
-    {
+    do {
 
-        if (sock->status == DISCONNECTED)
-        {
+        if (sock->status == DISCONNECTED) {
             // envoi du paquet
             setPacket(packet, 0, SYN, sock->numSeq, 0, ECN_DISABLED, 52, "");
             sendPacket(sock->outSocket, packet, sock->sockaddr);
@@ -119,6 +110,7 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
 
         if (ret < 0) // timeout
         {
+            printf("TIMEOUT\n");
             sock->status = DISCONNECTED;
             continue;
         }
@@ -127,8 +119,7 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
         parsePacket(packet, data);
 
         // verification du type packet doit etre ACK & SYN
-        if (!(packet->type & ACK) || !(packet->type & SYN))
-        {
+        if (!(packet->type & ACK) || !(packet->type & SYN)) {
             sock->status = DISCONNECTED;
             continue;
         }
@@ -150,8 +141,7 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort)
     return sock;
 }
 
-struct flux
-{
+struct flux {
     int fluxId;
     int congestionWindowSize;
     int lastReceivedACK;
@@ -164,8 +154,7 @@ struct flux
 
 typedef struct flux *flux_t;
 
-noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int fluxCount)
-{
+noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int fluxCount) {
     // not connected
     if (socket->status != ESTABLISHED)
         return -1;
@@ -176,31 +165,26 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
     ssize_t ret;
     char buf[44];
 
-    do
-    {
+    do {
         ret = recvfrom(socket->inSocket, &buf, 52, 0, NULL, NULL);
 
-        for (int i = 0; i < fluxCount; ++i)
-        {
+        for (int i = 0; i < fluxCount; ++i) {
 
             flux_t flux = fluxes[i];
             packet_t receivedPacket = NULL;
             timeout = false;
 
-            if (!first)
-            {
+            if (!first) {
 
 
                 if (ret < 0) // timeout // Y'a probleme!!!
                 {
                     timeout = true;
-                } else
-                {
+                } else {
                     receivedPacket = malloc(sizeof(struct packet));
                     parsePacket(receivedPacket, buf);
 
-                    if (!(receivedPacket->type & ACK))
-                    {
+                    if (!(receivedPacket->type & ACK)) {
                         destroyPacket(receivedPacket);
                         continue;
                     }
@@ -211,39 +195,30 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
             }
 
             // Si bit ECN alors flux recoit fenêtre congestion plus petite
-            if (!timeout && receivedPacket->ECN > 0)
-            {
+            if (!timeout && receivedPacket->ECN > 0) {
                 flux->congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
             }
 
             int windowSize = flux->congestionWindowSize / 52;
 
-            if (flux->lastReceivedACK == receivedPacket->numAcquittement)
-            {
+            if (flux->lastReceivedACK == receivedPacket->numAcquittement) {
                 flux->ackCounter++;
-            } else
-            {
+            } else {
                 flux->ackCounter = 0;
             }
 
-            if (flux->ackCounter >= 3)
-            {
+            if (flux->ackCounter >= 3) {
                 // Attention 3 ACK recu, probleme!
             }
 
-            if (flux->lastReceivedACK + 1 != receivedPacket->numAcquittement)
-            {
+            if (flux->lastReceivedACK + 1 != receivedPacket->numAcquittement) {
                 // on veut que l'acquittement soit égal au dernier + 1
             }
 
-            for (int j = 0; j < windowSize; ++j)
-            {
+            for (int j = 0; j < windowSize; ++j) {
                 packet_t packet = malloc(sizeof(struct packet));
                 setPacket(packet, flux->fluxId, 0, ++flux->lastSentSeq, 0, 0, 0, "");
                 sendPacket(socket->outSocket, packet, socket->sockaddr);
-
-                // if()
-
             }
 
             if (receivedPacket != NULL)
@@ -264,8 +239,7 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
 
 // Following function extracts characters present in `src`
 // between `m` and `n` (excluding `n`)
-char *substr(const char *src, int m, int n)
-{
+char *substr(const char *src, int m, int n) {
     // get the length of the destination string
     int len = n - m;
 
@@ -280,8 +254,7 @@ char *substr(const char *src, int m, int n)
 }
 
 
-void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
-{
+void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2]) {
     // on close le pipe write
     close(pipefd[1]);
 
@@ -301,18 +274,15 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
     for (int i = 0; i < UINT8_MAX; ++i)
         currentPackets[i] = NULL;
 
-    do
-    {
+    do {
         // Nombre de places dans la fenêtre
 
-        if (!first)
-        {
+        if (!first) {
 
             if (ret == 0) // TIMEOUT
             {
                 timeoutCount++;
-            } else
-            {
+            } else {
                 if (read(pipefd[0], &receivedPacket, 52) != 52)
                     raler("read pipe");
 
@@ -325,19 +295,16 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                     currentAckNb++;
 
                 // Checker s'il n'y a pas 3 fois les mêmes ACK
-                if (lastReceivedACK == receivedPacket.numAcquittement)
-                {
+                if (lastReceivedACK == receivedPacket.numAcquittement) {
                     ackCounter++;
 
-                    if (ackCounter >= 3)
-                    {
+                    if (ackCounter >= 3) {
                         // Attention 3 ACK recu, probleme!
                         congestionWindowSize = 52;
 
                         // On reset tout !
 
-                        for (int i = 0; i < currentAckNb; ++i)
-                        {
+                        for (int i = 0; i < currentAckNb; ++i) {
                             destroyPacket(currentPackets[i]);
                             currentPackets[i] = NULL;
                         }
@@ -349,15 +316,13 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
                         ecnCount = 0;
                     }
 
-                } else
-                {
+                } else {
                     ackCounter = 0;
                     lastReceivedACK = receivedPacket.numAcquittement;
                 }
 
                 // Si bit ECN alors flux recoit fenêtre congestion plus petite
-                if (receivedPacket.ECN > 0)
-                {
+                if (receivedPacket.ECN > 0) {
                     ecnCount++;
                 }
 
@@ -367,8 +332,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
 
         int windowSize = congestionWindowSize / 52;
 
-        if (currentAckNb >= windowSize)
-        {
+        if (currentAckNb >= windowSize) {
             // reinitialise tout ici
             congestionWindowSize += 52 * currentAckNb;
 
@@ -378,8 +342,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
             for (int i = 0; i < ecnCount; ++i)
                 congestionWindowSize = (uint16_t) (flux->congestionWindowSize * 0.9);
 
-            for (int i = 0; i < currentAckNb; ++i)
-            {
+            for (int i = 0; i < currentAckNb; ++i) {
                 destroyPacket(currentPackets[i]);
                 currentPackets[i] = NULL;
             }
@@ -387,16 +350,12 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
             currentAckNb = 0;
             timeoutCount = 0;
             ecnCount = 0;
-        } else
-        {
-            for (int i = currentAckNb; i <= windowSize; ++i)
-            {
+        } else {
+            for (int i = currentAckNb; i <= windowSize; ++i) {
                 packet_t packet = NULL;
-                if (currentPackets[i] != NULL)
-                {
+                if (currentPackets[i] != NULL) {
                     packet = currentPackets[i];
-                } else
-                {
+                } else {
                     newPacket(packet);
                     setPacket(packet, flux->fluxId, 0, i, 0, 0, 52,
                               substr(flux->buf, (packetsDone + i) * 44, (packetsDone + i + 1) * 44));
@@ -425,8 +384,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2])
  *
  * @param socket
  */
-void closeTcpSocket(tcp_socket_t socket)
-{
+void closeTcpSocket(tcp_socket_t socket) {
     // 4 way handshake here
     close(socket->inSocket);
     close(socket->outSocket);
@@ -436,20 +394,17 @@ void closeTcpSocket(tcp_socket_t socket)
 /********************************
  * Main program
  * *******************************/
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     // if : args unvalid
 
-    if (argc < 4)
-    {
+    if (argc < 4) {
         fprintf(stderr, "Usage: %s <mode> <IP_distante> <port_local> <port_ecoute_src_pertubateur>\n", argv[0]);
         exit(1);
     }
 
     send_mode_t mode = parseMode(argv[1]);
 
-    if (mode == UNKNOWN)
-    {
+    if (mode == UNKNOWN) {
         fprintf(stderr, "Usage: <mode> must be either 'stop-wait' or 'go-back-n'\n");
         exit(1);
     }
@@ -467,29 +422,10 @@ int main(int argc, char *argv[])
     printf("Destination port set at : %d\n", port_medium);
     printf("---------------\n");
 
-    connection_status_t connectionStatus = DISCONNECTED;
-    packet_status_t packetStatus = CAN_SEND_PACKET;
-
-    int outSocket = createSocket();
-    if (outSocket == -1)
-        raler("socket");
-    struct sockaddr_in sockAddr = prepareSendSocket(outSocket, ip, port_medium);
-    struct sockaddr *sockaddr = (struct sockaddr *) &sockAddr;
-
-    int inSocket = createSocket();
-    if (inSocket == -1)
-    {
-        closeSocket(outSocket);
-        raler("socket");
-    }
-    if (prepareRecvSocket(inSocket, port_local) == -1)
-    {
-        closeSocket(outSocket);
-        closeSocket(inSocket);
-        raler("bind");
-    }
-
     srand(time(NULL));
+
+    tcp_socket_t sock = connectTcpSocket(ip, port_local, port_medium);
+    printf("prout\n");
 
     return 0;
 }

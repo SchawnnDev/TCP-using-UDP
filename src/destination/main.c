@@ -33,7 +33,7 @@ struct tcp
     packet_t packet;
     int inSocket;
     int outSocket;
-    struct sockaddr *sockaddr;
+    struct sockaddr_in *sockaddr;
 };
 typedef struct tcp *tcp_t;
 
@@ -54,6 +54,8 @@ tcp_t createTcp(char *ip, int port_local, int port_medium)
 {
     tcp_t tcp = malloc(sizeof(struct tcp));
 
+    if(tcp == NULL) raler("prout");
+
     allocFlux(tcp);
     tcp->status = DISCONNECTED;
     tcp->packet = newPacket();
@@ -62,8 +64,8 @@ tcp_t createTcp(char *ip, int port_local, int port_medium)
     if(tcp->outSocket == -1)
         raler("create outSocket");
 
-    struct sockaddr_in sockAddr = prepareSendSocket(tcp->outSocket, ip, port_medium);
-    tcp->sockaddr = (struct sockaddr *) &(sockAddr);
+    struct sockaddr_in *sockAddr = prepareSendSocket(tcp->outSocket, ip, port_medium);
+    tcp->sockaddr = sockAddr;
 
     tcp->inSocket = createSocket();
     if(tcp->inSocket == -1)
@@ -77,6 +79,8 @@ tcp_t createTcp(char *ip, int port_local, int port_medium)
         closeSocket(tcp->inSocket);
         raler("prepareRecvSocket");
     }
+
+    return tcp;
 }
 
 void destroyTcp(tcp_t tcp)
@@ -111,6 +115,8 @@ void sendACK(tcp_t tcp)
         closeSocket(tcp->inSocket);
         raler("snprintf");
     }
+
+    printf("Send ACK\n");
 
     if(sendPacket(tcp->outSocket, tcp->packet, tcp->sockaddr) == -1)
     {
@@ -148,9 +154,11 @@ void handleTcp(tcp_t tcp)
 
 void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start, status_t end)
 {
+    printf("Handle connection\n");
     // Status : DISCONNECTED (open) or ESTABLISHED (close)
     while(tcp->status == start)
     {
+        printf("prout\n");
         if(recvPacket(packet, tcp->inSocket, 52) == -1)
         {
             destroyPacket(packet);
@@ -158,6 +166,7 @@ void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start,
             closeSocket(tcp->inSocket);
             raler("recvfrom");
         }
+        printf("Prout2\n");
         // Type : SYN (open) or FIN (close)
         if(packet->type == type)
             tcp->status = WAITING;
@@ -167,13 +176,15 @@ void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start,
     uint8_t numAcq = packet->numSequence + 1;
     srand(time(NULL));
     uint8_t numSeq = rand() % (UINT16_MAX / 2);
-    if(setPacket(packet, idFlux, SYN | ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
+    if(setPacket(packet, idFlux, type | ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
     {
         destroyPacket(packet);
         closeSocket(tcp->outSocket);
         closeSocket(tcp->inSocket);
         raler("snprintf");
     }
+
+    printf("Send packet\n");
 
     if(sendPacket(tcp->outSocket, packet, tcp->sockaddr) == -1)
     {
@@ -196,6 +207,8 @@ void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start,
         if(packet->type == ACK)
             tcp->status = end;
     }
+
+    printf("3way reussi\n");
 }
 
 /********************************
@@ -227,11 +240,11 @@ int main(int argc, char *argv[])
     // open connection
     tcp_t tcp = createTcp(ip, port_local, port_medium);
     handleConnection(tcp->packet, tcp, SYN, DISCONNECTED, ESTABLISHED);
-
-    handleTcp(tcp->packet);
+    /*
+    handleTcp(tcp);
 
     // close connection
-    handleConnection(tcp->packet, tcp, FIN, ESTABLISHED, DISCONNECTED);
+    handleConnection(tcp->packet, tcp, FIN, ESTABLISHED, DISCONNECTED); */
     destroyTcp(tcp);
 
     return 0;
