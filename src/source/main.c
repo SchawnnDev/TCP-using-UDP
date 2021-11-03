@@ -76,7 +76,7 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort) {
     // On set un timeout de 100 ms
     struct timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 2000000;
+    tv.tv_usec = 500000;
 
     // depuis destination
     if (prepareRecvSocket(sock->inSocket, localPort) < 0 ||
@@ -110,7 +110,6 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort) {
 
         if (ret < 0) // timeout
         {
-            printf("TIMEOUT\n");
             sock->status = DISCONNECTED;
             continue;
         }
@@ -425,7 +424,6 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));
 
     tcp_socket_t sock = connectTcpSocket(ip, port_local, port_medium);
-    printf("prout\n");
 
     return 0;
 }
