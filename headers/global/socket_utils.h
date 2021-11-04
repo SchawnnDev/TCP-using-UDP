@@ -99,19 +99,21 @@ int prepareRecvSocket(int socket, int port) {
 
 int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr) {
     struct sockaddr *sp = (struct sockaddr *) &(*sockaddr);
+
+    printf("SendTo: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type | ACK ? "ACK" : "Other");
+
     return sendto(socket, packet, 52, 0, sp, sizeof(*sp)) == -1 ? -1 : 0;
 }
 
 int recvPacket(packet_t packet, int socket, int size) {
     struct sockaddr from;
     socklen_t addrlen = sizeof(from);
-    char *buffer = malloc(sizeof(char) * size);
 
-    if (recvfrom(socket, buffer, size, 0, &from, &addrlen) == -1)
+    if (recvfrom(socket, packet, size, 0, &from, &addrlen) == -1)
         return -1;
 
-    parsePacket(packet, buffer);
-    free(buffer);
+    printf("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
+
 
     return 0;
 }

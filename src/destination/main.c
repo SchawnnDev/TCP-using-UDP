@@ -103,10 +103,12 @@ uint8_t checkPacket(tcp_t tcp, uint8_t idFlux)
 void sendACK(tcp_t tcp)
 {
 
+    printf("B: SendACK flux=%d, acq=%d\n", tcp->packet->idFlux, tcp->packet->numAcquittement);
     uint8_t idFlux = tcp->packet->idFlux;
     uint8_t numAcq = checkPacket(tcp, idFlux);
     uint8_t ECN = tcp->packet->ECN;
     uint8_t size = tcp->packet->tailleFenetre;
+
 
     if(setPacket(tcp->packet, idFlux, ACK, numAcq, numAcq, ECN, size, "") == -1)
     {
