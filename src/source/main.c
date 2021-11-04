@@ -1,17 +1,14 @@
 #include <stdnoreturn.h>
-#include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
-#include <sys/poll.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 #include "../../headers/global/utils.h"
 #include "../../headers/global/packet.h"
@@ -26,8 +23,9 @@ enum connectionStatus {
 typedef enum connectionStatus connection_status_t;
 
 enum packetStatus {
-    CAN_SEND_PACKET = 0,
-    WAITING_ACK = 1
+    WAIT_ACK = 0,
+    SEND_PACKET = 1,
+    RESEND_PACKET = 2
 };
 
 typedef enum packetStatus packet_status_t;
@@ -70,10 +68,9 @@ tcp_socket_t connectTcpSocket(char *ip, int localPort, int destinationPort) {
     sock->status = DISCONNECTED;
 
     // vers destination
-    struct sockaddr_in* sockaddr = prepareSendSocket(sock->outSocket, ip, destinationPort);
-    sock->sockaddr =sockaddr; // marche peut-être pas ??
+    sock->sockaddr = prepareSendSocket(sock->outSocket, ip, destinationPort);
 
-    // On set un timeout de 100 ms
+    // On set un timeout de 500 ms
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 500000;
@@ -236,26 +233,229 @@ noreturn int sendTcpSocket(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int
     return 0;
 }
 
-// Following function extracts characters present in `src`
-// between `m` and `n` (excluding `n`)
-char *substr(const char *src, int m, int n) {
-    // get the length of the destination string
-    int len = n - m;
+enum threadStatus {
+    START = 0,
+    STOP = 1
+};
 
-    // allocate (len + 1) chars for destination (+1 for extra null character)
-    char *dest = (char *) malloc(sizeof(char) * (len + 1));
+typedef enum threadStatus thread_status_t;
 
-    // start with m'th char and copy `len` chars into the destination
-    strncpy(dest, (src + m), len);
+// Fonction pas très safe car aucune verif de taille pour to
+void substr(const char *from, char *to, int fromStart, int fromEnd) {
+    int j = 0;
+    int len = fromEnd - fromStart;
 
-    // return the destination string
-    return dest;
+    for (int i = 0; i < len; ++i) {
+        if (j >= fromStart && j < fromEnd) {
+            to[j++] = from[i];
+        } else {
+            to[j++] = 0;
+        }
+    }
+}
+
+struct args {
+    tcp_socket_t socket;
+    flux_t flux;
+    int pipe_read;
+};
+
+struct incomingArgs {
+    tcp_socket_t socket;
+    int *pipesfd;
+    int fluxCount;
+    thread_status_t *threadStatus;
+};
+
+void *handleGoBackN(void *arg) {
+    struct args args = *(struct args *) arg;
+
 }
 
 
+void *handleStopWait(void *arg) {
+    struct args args = *(struct args *) arg;
+    packet_t packet = newPacket();
+    int packetsNb = args.flux->bufLen / PACKET_DATA_SIZE;
+    int packetsDone = 0;
+    uint8_t seq = 2;
+    packet_status_t packetStatus = SEND_PACKET;
+    ssize_t ret = -1;
+    fd_set working_set;
+    char currentBuff[PACKET_DATA_SIZE];
+
+    // On set un timeout de 500 ms
+    struct timeval tv = {0, 2000000};
+
+    do {
+
+        // TIMEOUT
+        if (packetStatus == WAIT_ACK) {
+            if (ret == 0) {
+                // TIMEOUT
+                packetStatus = RESEND_PACKET;
+            } else if (ret > 0) {
+                // SUCCESS
+
+                if (read(args.pipe_read, packet, 52) != 52)
+                    raler("read pipe");
+
+                // Si l'ACQ passe cette condition alors il est valide
+                if (!(packet->type & ACK) || packet->numAcquittement != seq) { // on attend un ack
+                    packetStatus = RESEND_PACKET;
+                } else {
+                    packetsDone++;
+                    packetStatus = SEND_PACKET;
+
+                    // si tous les paquets sont passés, alors on arrête la boucle
+                    if (packetsDone >= packetsNb)
+                        break;
+
+                }
+
+            }
+        }
+
+        if (packetStatus == SEND_PACKET) {
+            seq = seq == 0 ? -1 : 0;
+            int fromEnd = (packetsDone + 1) + PACKET_DATA_SIZE;
+            // on vérifie que le dernier buffer n'est pas plus grand que le buffer.
+            if (fromEnd > args.flux->bufLen)
+                fromEnd = args.flux->bufLen - fromEnd;
+
+            substr(args.flux->buf, currentBuff, packetsDone * PACKET_DATA_SIZE, fromEnd);
+        }
+
+        printf("Send packet fluxid=%d\n", args.flux->fluxId);
+        setPacket(packet, args.flux->fluxId, 0, seq, 0, 0, 0, currentBuff);
+        sendPacket(args.socket->outSocket, packet, args.socket->sockaddr);
+        packetStatus = WAIT_ACK;
+
+        FD_ZERO(&working_set);
+        FD_SET(args.pipe_read, &working_set);
+
+       // printf("Select %d and wait sec=%ld, usec=%ld\n", args.pipe_read, tv.tv_sec, tv.tv_usec);
+
+        ret = select(args.pipe_read + 1, &working_set, NULL, NULL, &tv);
+
+        if (ret == -1) raler("select ici\n");
+
+    } while (packetsDone < packetsNb);
+
+    pthread_exit(NULL);
+}
+
+void *handleIncomingPackets(void *arg) {
+    struct incomingArgs args = *(struct incomingArgs *) arg;
+    ssize_t ret;
+    packet_t packet = newPacket();
+
+    do {
+        ret = recvfrom(args.socket->inSocket, packet, 52, 0, NULL, NULL);
+        printf("RECV\n");
+
+        if (ret < 0) // timeout
+            continue;
+
+        printf("no timeout");
+
+        if (!(packet->type & ACK))
+            continue;
+
+        if (packet->idFlux >= args.fluxCount)
+            continue;
+
+        printf("write to flux: %d, pipe_write=%d\n", packet->idFlux, args.pipesfd[packet->idFlux]);
+
+        printf("write to %p\n", args.pipesfd[packet->idFlux]);
+        ret = write(args.pipesfd[packet->idFlux], packet, 52);
+
+        if (ret < 0)
+            perror("write");
+
+    } while (*args.threadStatus != STOP);
+
+    destroyPacket(packet);
+
+    pthread_exit(NULL);
+}
+
+
+/**
+ * Démarrage les threads pour chaque flux.
+ * Multi-thread
+ * @param socket TCP Socket
+ * @param mode Mode de transmission
+ * @param fluxes Tableau contenant des flux.
+ * @param fluxCount Nb de flux dans le tableau
+ */
+void sendTo(tcp_socket_t socket, mode_t mode, flux_t *fluxes, int fluxCount) {
+    thread_status_t threadStatus = START;
+    pthread_t *desc = malloc(sizeof(pthread_t) * (fluxCount + 1));
+    struct args *table = malloc(sizeof(struct args) * fluxCount);
+    int **pipes = malloc(sizeof(int) * fluxCount);
+    int* wrPipes = malloc(sizeof(int) * fluxCount);
+
+    struct incomingArgs args;
+    args.socket = socket;
+    args.pipesfd = wrPipes;
+    args.fluxCount = fluxCount;
+    args.threadStatus = &threadStatus;
+
+    // démarrer le thread de gestion
+    printf("start gestion thread\n");
+    pthread_create(&desc[0], NULL, handleIncomingPackets, &args);
+
+    // // // //
+    for (int i = 1; i <= fluxCount; ++i) {
+        flux_t flux = fluxes[i - 1];
+        table[i].socket = socket;
+        table[i].flux = flux;
+       // table[i].status = &threadStatus;
+        pipes[i-1] = malloc(sizeof(int) * 2);
+        printf("sendTo, fluxid=%d\n", flux->fluxId);
+
+        // OPEN PIPE
+        if (pipe(pipes[i - 1]) < 0) perror("pipe");
+
+        printf("Opened new pipe for flux=%d; read=%d, write=%d\n", i - 1, pipes[i-1][0], pipes[i-1][1]);
+
+        table[i].pipe_read = pipes[i - 1][0];
+        wrPipes[i] = pipes[i - 1][1];
+
+        if (pthread_create(&desc[i], NULL, mode == STOP_AND_WAIT ? handleStopWait : handleGoBackN, &table[i]) > 0) {
+            perror("pthread");
+        }
+
+        // Create thread communicating with
+    }
+
+    // on attend la terminaison de tout les flux
+    for (int i = 1; i <= fluxCount; ++i) {
+        if (pthread_join(desc[i], NULL) > 0)
+            perror("pthread_join");
+    }
+
+    threadStatus = STOP;
+
+
+    // on attend le thread de gestion
+    if (pthread_join(desc[0], NULL) > 0)
+        perror("pthread_join");
+
+    for (int i = 0; i < fluxCount; ++i) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+        free(pipes[i]);
+    }
+
+    free(pipes);
+    free(table);
+    free(desc);
+
+}
+
 void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2]) {
-    // on close le pipe write
-    close(pipefd[1]);
 
     // cb de packets il faut envoyer pour ce flux
     int packetNb = flux->bufLen / PACKET_DATA_SIZE, currentAckNb = 0;
@@ -356,8 +556,7 @@ void processus_fils(tcp_socket_t socket, flux_t flux, int pipefd[2]) {
                     packet = currentPackets[i];
                 } else {
                     newPacket(packet);
-                    setPacket(packet, flux->fluxId, 0, i, 0, 0, 52,
-                              substr(flux->buf, (packetsDone + i) * 44, (packetsDone + i + 1) * 44));
+                    //      setPacket(packet, flux->fluxId, 0, i, 0, 0, 52, substr(flux->buf, (packetsDone + i) * 44, (packetsDone + i + 1) * 44));
                     currentPackets[i] = packet;
                 }
 
@@ -424,6 +623,12 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));
 
     tcp_socket_t sock = connectTcpSocket(ip, port_local, port_medium);
+    flux_t fluxes[1];
+    fluxes[0] = malloc(sizeof(struct flux));
+    fluxes[0]->buf = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    fluxes[0]->bufLen = 62;
+    fluxes[0]->fluxId = 0;
+    sendTo(sock, STOP_AND_WAIT, fluxes,1);
 
     return 0;
 }

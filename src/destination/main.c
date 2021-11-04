@@ -233,9 +233,9 @@ int main(int argc, char *argv[])
     // open connection
     tcp_t tcp = createTcp(ip, port_local, port_medium);
     handleConnection(tcp->packet, tcp, SYN, DISCONNECTED, ESTABLISHED);
-    /*
-    handleTcp(tcp);
 
+    handleTcp(tcp);
+    /*
     // close connection
     handleConnection(tcp->packet, tcp, FIN, ESTABLISHED, DISCONNECTED); */
     destroyTcp(tcp);

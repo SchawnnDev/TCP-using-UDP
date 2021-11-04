@@ -67,7 +67,7 @@ void destroyPacket(packet_t packet);
  * @fn      packet_t setPacket(packet_t packet, uint8_t id, uint8_t type,
  *          uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data);
  * @brief   Inserts given values into a packet
- * @param   id      packet's ID
+ * @param   idFlux  packet's flux ID
  * @param   type    packet's type
  * @param   seq     packet's sequence number
  * @param   acq     packet's acquittal number
@@ -76,7 +76,7 @@ void destroyPacket(packet_t packet);
  * @param   data    packet's data
  * @return  -1 if an error has occurred, else 0
  */
-int setPacket(packet_t packet, uint8_t id, uint8_t type, uint8_t seq,
+int setPacket(packet_t packet, uint8_t idFlux, uint8_t type, uint8_t seq,
                    uint8_t acq, uint8_t ECN, uint8_t size, char *data);
 
 /**
@@ -111,9 +111,9 @@ void destroyPacket(packet_t packet)
     free(packet);
 }
 
-int setPacket(packet_t packet, uint8_t id, uint8_t type,
+int setPacket(packet_t packet, uint8_t idFlux, uint8_t type,
                       uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
-    packet->idFlux = id;
+    packet->idFlux = idFlux;
     packet->type = type;
     packet->numSequence = seq;
     packet->numAcquittement = acq;
