@@ -76,8 +76,8 @@ void destroyPacket(packet_t packet);
  * @param   data    packet's data
  * @return  -1 if an error has occurred, else 0
  */
-int setPacket(packet_t packet, uint8_t idFlux, uint8_t type, uint8_t seq,
-                   uint8_t acq, uint8_t ECN, uint8_t size, char *data);
+int setPacket(packet_t packet, uint8_t idFlux, uint8_t type, uint16_t seq,
+                   uint16_t acq, uint8_t ECN, uint8_t size, char *data);
 
 /**
  * @fn      void showPacket(packet_t packet)
@@ -112,7 +112,7 @@ void destroyPacket(packet_t packet)
 }
 
 int setPacket(packet_t packet, uint8_t idFlux, uint8_t type,
-                      uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data) {
+                      uint16_t seq, uint16_t acq, uint8_t ECN, uint8_t size, char *data) {
     packet->idFlux = idFlux;
     packet->type = type;
     packet->numSequence = seq;

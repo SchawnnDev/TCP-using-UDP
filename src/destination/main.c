@@ -20,7 +20,7 @@ typedef enum status status_t;
 
 struct flux
 {
-    uint8_t last_ack;
+    uint16_t last_ack;
     size_t size;
     char *data;
 };
@@ -92,12 +92,12 @@ void destroyTcp(tcp_t tcp)
     free(tcp);
 }
 
-uint8_t checkPacket(tcp_t tcp, uint8_t idFlux)
+uint16_t checkPacket(tcp_t tcp, uint8_t idFlux)
 {
-    uint8_t last_ack = tcp->flux[idFlux];
+    uint16_t last_ack = tcp->flux[idFlux]->last_ack;
     if(tcp->packet->numAcquittement == last_ack + 1)
-        tcp->flux[idFlux]++;
-    return tcp->flux[idFlux];
+        tcp->flux[idFlux]->last_ack++;
+    return tcp->flux[idFlux]->last_ack;
 }
 
 void sendACK(tcp_t tcp)
@@ -105,12 +105,12 @@ void sendACK(tcp_t tcp)
 
     printf("B: SendACK flux=%d, acq=%d\n", tcp->packet->idFlux, tcp->packet->numAcquittement);
     uint8_t idFlux = tcp->packet->idFlux;
-    uint8_t numAcq = checkPacket(tcp, idFlux);
+    uint16_t numAcq = checkPacket(tcp, idFlux);
     uint8_t ECN = tcp->packet->ECN;
     uint8_t size = tcp->packet->tailleFenetre;
 
 
-    if(setPacket(tcp->packet, idFlux, ACK, numAcq, numAcq, ECN, size, "") == -1)
+    if(setPacket(tcp->packet, idFlux, ACK, tcp->packet->numSequence, numAcq, ECN, size, "") == -1)
     {
         destroyPacket(tcp->packet);
         closeSocket(tcp->outSocket);
@@ -145,8 +145,10 @@ void handleTcp(tcp_t tcp)
             destroyTcp(tcp);
             raler("recvfrom");
         }
+
         if(tcp->packet->type == FIN) // end
             break;
+
         storeData(tcp, tcp->packet->idFlux, tcp->packet->data);
         sendACK(tcp);
     }
@@ -173,7 +175,7 @@ void handleConnection (packet_t packet, tcp_t tcp, uint8_t type, status_t start,
     uint8_t idFlux = packet->idFlux;
     uint8_t numAcq = packet->numSequence + 1;
     srand(time(NULL));
-    uint8_t numSeq = rand() % (UINT16_MAX / 2);
+    uint16_t numSeq = rand() % (UINT16_MAX / 2);
     if(setPacket(packet, idFlux, type | ACK, numSeq, numAcq, ECN_DISABLED, 52, "") == -1)
     {
         destroyPacket(packet);
