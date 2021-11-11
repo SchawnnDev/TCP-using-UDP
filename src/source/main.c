@@ -26,7 +26,8 @@
 enum connectionStatus {
     DISCONNECTED = 0x0,
     WAITING_SYN_ACK = 0x1,
-    ESTABLISHED = 0x2
+    ESTABLISHED = 0x2,
+    CLOSED = 0x3
 };
 
 typedef enum connectionStatus connection_status_t;
@@ -153,6 +154,9 @@ struct flux {
     int numSeq;
     connection_status_t status;
     packet_status_t packetStatus;
+    packet_t packets[UINT8_MAX];
+    int packetsCount;
+    int packetsToSend;
 };
 
 typedef struct flux *flux_t;
@@ -223,11 +227,14 @@ void processFlux(flux_t flux, packet_t packet, int outSocket, struct sockaddr_in
      *  GESTION 3 WAY
      */
 
+    if(flux->packetsCount == 0)
+        flux->packets[flux->packetsCount++] = newPacket();
+
     if (flux->status == DISCONNECTED) {
 
         flux->numSeq = rand() % (UINT16_MAX / 2);
-        setPacket(packet, flux->fluxId, SYN, flux->numSeq, 0, ECN_DISABLED, 52, "");
-        sendPacket(outSocket, packet, sockaddr);
+        setPacket(flux->packets[0], flux->fluxId, SYN, flux->numSeq, 0, ECN_DISABLED, 52, "");
+        flux->packetsToSend++;
         flux->status = WAITING_SYN_ACK;
         return;
     }
@@ -264,6 +271,10 @@ void processFlux(flux_t flux, packet_t packet, int outSocket, struct sockaddr_in
     // TODO: handle go back n
 }
 
+void stopWait(flux_t* fluxes, int fluxCount) {
+
+}
+
 
 /********************************
  * Main program
@@ -298,7 +309,6 @@ int main(int argc, char *argv[]) {
 
     srand(time(NULL));
 
-    tcp_socket_t sock = connectTcpSocket(ip, port_local, port_medium);
     int fluxCount = 1;
     flux_t fluxes[fluxCount];
     fluxes[0] = malloc(sizeof(struct flux));
@@ -306,6 +316,8 @@ int main(int argc, char *argv[]) {
     fluxes[0]->bufLen = 62;
     fluxes[0]->fluxId = 0;
     fluxes[0]->status = DISCONNECTED;
+    fluxes[0]->packetsToSend = 0;
+    fluxes[0]->packetsCount = 0;
 
     int inSocket = createSocket();
     int outSocket = createSocket();
@@ -332,18 +344,54 @@ int main(int argc, char *argv[]) {
     packet_t packet = newPacket();
     size_t ret = 0;
     bool first = true;
-    bool timeout = false;
+    bool loop = true;
+    int done = 0;
 
     do {
-        timeout = ret < 0;
 
         for (int i = 0; i < fluxCount; ++i) {
             flux_t flux = fluxes[i];
             processFlux(flux, packet, outSocket, sockaddr, false, mode);
         }
 
-        ret = recvfrom(inSocket, packet, 52, 0, NULL, NULL);
-    } while (1);
+        loop = true;
+
+        // On envoie les paquets en des flux simultané
+        while(loop)
+        {
+            loop = false;
+
+            for (int i = 0; i < fluxCount; ++i)
+            {
+                flux_t flux = fluxes[i];
+
+                if(flux->packetsToSend == 0)
+                    continue;
+
+                loop = true;
+                sendPacket(outSocket, flux->packets[--flux->packetsToSend], sockaddr);
+            }
+
+        }
+
+        for (int i = 0; i < fluxCount; ++i)
+        {
+            ret = recvfrom(inSocket, packet, 52, 0, NULL, NULL);
+        }
+
+        // ret = recvfrom(inSocket, packet, 52, 0, NULL, NULL);
+
+        // on vérifie si tous les flux ne sont pas terminés
+        for (int i = 0; i < fluxCount; ++i)
+        {
+            if(fluxes[i]->status == CLOSED)
+                continue;
+            loop = true;
+            break;
+        }
+
+
+    } while (loop);
 
 
     return 0;
