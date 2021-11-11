@@ -187,37 +187,38 @@ void closeTcpSocket(tcp_socket_t socket) {
     free(socket);
 }
 
-void handleStopWait(flux_t flux, packet_t packet, int outSocket, struct sockaddr_in *sockaddr, bool timeout) {
+void handleStopWait(flux_t flux, packet_t packet, int inSocket, int outSocket, struct sockaddr_in *sockaddr, bool timeout) {
 
-    // TIMEOUT
-    if (flux->packetStatus == WAIT_ACK) {
-        if (timeout) {
-            // TIMEOUT
-            flux->packetStatus = RESEND_PACKET;
-        } else {
-            // SUCCESS
-
-            // Si l'ACQ passe cette condition alors il est valide
-            if (!(packet->type & ACK) || packet->numAcquittement != flux->numSeq + 1) { // on attend un ack
-                flux->packetStatus = RESEND_PACKET;
-            } else {
-                flux->packetStatus = SEND_PACKET;
-
-                // si tous les paquets sont passés, alors on arrête la boucle
-
-            }
-
-        }
-    }
-
-    if (flux->packetStatus == SEND_PACKET) {
-        flux->numSeq = outSocket == 0 ? -1 : 0;
-    }
-
-    // TODO: BUFF?
     setPacket(packet, flux->fluxId, 0, flux->numSeq, 0, 0, 0, "");
     sendPacket(outSocket, packet, sockaddr);
     flux->packetStatus = WAIT_ACK;
+
+    size_t ret = recvfrom(inSocket, packet, 52, 0, NULL, NULL);
+    timeout = ret < 0;
+
+    // TIMEOUT
+    if (timeout) {
+        // TIMEOUT
+        flux->packetStatus = RESEND_PACKET;
+    } else {
+        // SUCCESS
+
+        // Si l'ACQ passe cette condition alors il est valide
+        if (!(packet->type & ACK) || packet->numAcquittement != flux->numSeq) { // on attend un ack
+            flux->packetStatus = RESEND_PACKET;
+        } else {
+            flux->packetStatus = SEND_PACKET;
+
+            // si tous les paquets sont passés, alors on arrête la boucle
+
+        }
+
+    }
+
+    if (flux->packetStatus == SEND_PACKET) {
+        flux->numSeq = flux->numSeq == 0 ? 1 : 0;
+    }
+
 
 }
 
@@ -270,11 +271,6 @@ void processFlux(flux_t flux, packet_t packet, int outSocket, struct sockaddr_in
 
     // TODO: handle go back n
 }
-
-void stopWait(flux_t* fluxes, int fluxCount) {
-
-}
-
 
 /********************************
  * Main program
