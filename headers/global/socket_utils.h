@@ -1,6 +1,9 @@
 #ifndef _SOCKET_UTILS_H
 #define _SOCKET_UTILS_H
 
+#include <unistd.h>
+#include <arpa/inet.h>
+
 /**
  * @fn      int createSocket()
  * @brief   Creates a socket
