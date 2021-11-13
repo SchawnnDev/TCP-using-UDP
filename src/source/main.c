@@ -240,6 +240,7 @@ void *doStopWait(void *arg) {
                 } else if (status == TERM_WAIT_TERM) {
                     // Si le double temps d'attente du rtt est dépassé,
                     // alors on peut stopper le programme.
+                    DEBUG_PRINT("doStopWait: TERM_WAIT_TERM, thread stopping...\n");
                     break;
                 }
 
@@ -258,9 +259,7 @@ void *doStopWait(void *arg) {
                     status = TERM_WAIT_FIN;
                 }
             }
-
         }
-
 
         if (status == TERM_SEND_FIN) {
             numSeq = rand() % (UINT16_MAX / 2);
