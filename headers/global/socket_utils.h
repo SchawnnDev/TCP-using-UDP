@@ -4,6 +4,14 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
+struct tcp
+{
+    int inSocket;
+    int outSocket;
+    struct sockaddr_in *sockaddr;
+};
+typedef struct tcp *tcp_t;
+
 /**
  * @fn      int createSocket()
  * @brief   Creates a socket

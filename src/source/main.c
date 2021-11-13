@@ -10,6 +10,7 @@
 
 #include "../../headers/global/utils.h"
 #include "../../headers/global/packet.h"
+#include "../../headers/global/socket_utils.h" // needs a TCP structure
 
 #define TIMEOUT 2000000
 #define DEBUG 1
@@ -55,19 +56,11 @@ modeTCP_t parseMode(char *mode) {
     return UNKNOWN; // Default
 }
 
-struct tcp {
-    int inSocket;
-    int outSocket;
-    struct sockaddr_in *sockaddr;
-};
-typedef struct tcp *tcp_t;
-
-#include "../../headers/global/socket_utils.h" // needs a TCP structure
-
 struct flux {
     int fluxId;
     flux_status_t status;
-    packet_t packets[UINT8_MAX];
+    packet_t
+    packets[UINT8_MAX];
     int congestionWindowSize;
     int lastReceivedACK;
     int ackCounter;
