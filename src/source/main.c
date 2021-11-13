@@ -194,6 +194,7 @@ void *doStopWait(void *arg) {
                             // if every packet has been sent, we are done here
                             if (nb_done_packets >= nb_packets) {
                                 status = TERM_SEND_FIN;
+                                DEBUG_PRINT("HSW: debut TERM_SEND_FIN\n");
                             }
                         }
                     }
