@@ -14,7 +14,8 @@ enum status
 {
     DISCONNECTED = 0x0,
     WAITING = 0x1,
-    ESTABLISHED = 0x2
+    ESTABLISHED = 0x2,
+    CLOSED = 0x3
 };
 typedef enum status status_t;
 
@@ -150,9 +151,9 @@ void handle(tcp_t tcp)
 {
 
     status_t status;
-    //int first = 1;
 
-    while(1)
+    /* more than one flux */
+    while(tcp->nb_flux > 0 && checkFluxes(tcp) > 0)
     {
         /* receives a packet */
         if(recvPacket(tcp->packet, tcp->inSocket, 52) == -1)
@@ -179,7 +180,6 @@ void handle(tcp_t tcp)
                 tcp->flux[tcp->packet->idFlux] = malloc(PACKET_DATA_SIZE); // flux_t ? alloc a new flux
                 tcp->flux[tcp->packet->idFlux]->last_numSeq = tcp->packet->numSequence + 1; // à voir, +1 ?
                 tcp->nb_flux++; // increments the total count of fluxes
-                // first = 0;
             }
 
             /* no lastSeq check ; SYN | ACK ; random numSeq */
@@ -215,11 +215,6 @@ void handle(tcp_t tcp)
             sendACK(tcp, 1, 0, 0);
             printf("> idFlux %d : DATA\n", tcp->packet->idFlux);
         }
-
-        /* end of the connection */
-        /*if(tcp->nb_flux == 0 && !first)
-            break;*/
-
     }
     printf("> Close connection\n");
 }
