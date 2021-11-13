@@ -20,6 +20,8 @@ noreturn void raler(char *message);
  */
 int string_to_int(char *arg);
 
+void substr(const char *from, char *to, int fromStart, int fromEnd);
+
 /*///////////*/
 /* FUNCTIONS */
 /*///////////*/
@@ -52,6 +54,20 @@ int string_to_int(char *arg)
 
     // cast to int (use of signed values later)
     return (int) N;
+}
+
+// Fonction pas très safe car aucune verif de taille pour to
+void substr(const char *from, char *to, int fromStart, int fromEnd) {
+    int j = 0;
+    int len = fromEnd - fromStart;
+
+    for (int i = 0; i < len; ++i) {
+        if (j >= fromStart && j < fromEnd) {
+            to[j++] = from[i];
+        } else {
+            to[j++] = 0;
+        }
+    }
 }
 
 #endif //_UTILS_H

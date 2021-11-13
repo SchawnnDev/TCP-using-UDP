@@ -44,7 +44,7 @@ all : build_dir_source build_dir_destination title $(BIN_DIR)/$(EXECUTABLE_NAME_
 $(BIN_DIR)/$(EXECUTABLE_NAME_SRC) : build_dir_source $(OBJS_SOURCE)
 	@echo "\n> Compiling source : "
 	@mkdir -p $(BIN_DIR)
-	$(CC) $(OBJS_SOURCE) -o $@
+	$(CC) $(OBJS_SOURCE) -o $@ -lpthread
 
 $(BIN_DIR)/$(EXECUTABLE_NAME_DST) : build_dir_destination $(OBJS_DESTINATION)
 	@echo "\n> Compiling destination: "

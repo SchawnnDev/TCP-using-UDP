@@ -117,7 +117,6 @@ int recvPacket(packet_t packet, int socket, int size) {
 
     printf("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
 
-
     return 0;
 }
 
