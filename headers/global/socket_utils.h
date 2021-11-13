@@ -56,6 +56,10 @@ int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr);
  */
 int recvPacket(packet_t packet, int socket, int size);
 
+tcp_t createTcp(char *ip, int port_local, int port_medium);
+
+void destroyTcp(tcp_t tcp);
+
 /*///////////*/
 /* FUNCTIONS */
 /*///////////*/
@@ -83,7 +87,6 @@ struct sockaddr_in *prepareSendSocket(int socket, char *address, int port) {
     return sockAddr;
 }
 
-// pk int ici ? on a deja le sock
 int prepareRecvSocket(int socket, int port) {
     struct sockaddr_in socketAddr;
     memset(&socketAddr, 0, sizeof(socketAddr));
@@ -118,6 +121,45 @@ int recvPacket(packet_t packet, int socket, int size) {
     printf("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
 
     return 0;
+}
+
+tcp_t createTcp(char *ip, int port_local, int port_medium)
+{
+    // alloc TCP general structure
+    tcp_t tcp = malloc(sizeof(struct tcp));
+    if(tcp == NULL) raler("malloc tcp");
+
+    // TCP writing socket
+    tcp->outSocket = createSocket();
+    if(tcp->outSocket == -1)
+        raler("create outSocket");
+
+    // TCP adresses
+    struct sockaddr_in *sockAddr = prepareSendSocket(tcp->outSocket, ip, port_medium);
+    tcp->sockaddr = sockAddr;
+
+    // TCP reading socket
+    tcp->inSocket = createSocket();
+    if(tcp->inSocket == -1)
+    {
+        closeSocket(tcp->inSocket);
+        raler("create inSocket");
+    }
+    if(prepareRecvSocket(tcp->inSocket, port_local) == -1)
+    {
+        closeSocket(tcp->outSocket);
+        closeSocket(tcp->inSocket);
+        raler("prepareRecvSocket");
+    }
+
+    return tcp;
+}
+
+void destroyTcp(tcp_t tcp)
+{
+    closeSocket(tcp->outSocket);
+    closeSocket(tcp->inSocket);
+    free(tcp);
 }
 
 #endif //_SOCKET_UTILS_H

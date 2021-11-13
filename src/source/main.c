@@ -10,7 +10,6 @@
 
 #include "../../headers/global/utils.h"
 #include "../../headers/global/packet.h"
-#include "../../headers/global/socket_utils.h"
 
 #define TIMEOUT 2000000
 #define DEBUG 1
@@ -62,6 +61,8 @@ struct tcp {
     struct sockaddr_in *sockaddr;
 };
 typedef struct tcp *tcp_t;
+
+#include "../../headers/global/socket_utils.h" // needs a TCP structure
 
 struct flux {
     int fluxId;
@@ -344,9 +345,6 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux)
         if (pthread_create(&thr_id[i], NULL, mode == STOP_AND_WAIT ? (void*) doStopWait : (void*) doGoBackN, &fluxes_thr[i]) > 0) {
             perror("pthread");
         }
-
-        // Create thread communicating with
-        // jsp ce que c'est ce commentaire polo ?
     }
 
     // waiting for each thread (flux) to end
@@ -374,44 +372,6 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux)
     free(pipes);
     free(fluxes_thr);
     free(thr_id);
-}
-
-void destroyTcp(tcp_t tcp) {
-    closeSocket(tcp->inSocket);
-    closeSocket(tcp->outSocket);
-    free(tcp);
-}
-
-tcp_t createTcp(char *ip, int port_local, int port_medium)
-{
-    // alloc TCP general structure
-    tcp_t tcp = malloc(sizeof(struct tcp));
-    if(tcp == NULL) raler("malloc tcp");
-
-    // TCP writing socket
-    tcp->outSocket = createSocket();
-    if(tcp->outSocket == -1)
-        raler("create outSocket");
-
-    // TCP adresses
-    struct sockaddr_in *sockAddr = prepareSendSocket(tcp->outSocket, ip, port_medium);
-    tcp->sockaddr = sockAddr;
-
-    // TCP reading socket
-    tcp->inSocket = createSocket();
-    if(tcp->inSocket == -1)
-    {
-        closeSocket(tcp->inSocket);
-        raler("create inSocket");
-    }
-    if(prepareRecvSocket(tcp->inSocket, port_local) == -1)
-    {
-        closeSocket(tcp->outSocket);
-        closeSocket(tcp->inSocket);
-        raler("prepareRecvSocket");
-    }
-
-    return tcp;
 }
 
 /********************************
@@ -458,39 +418,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
-/**
- *   if (sock->status == DISCONNECTED) {
-            // envoi du paquet
-            setPacket(packet, 0, SYN, sock->numSeq, 0, ECN_DISABLED, 52, "");
-            sendPacket(sock->outSocket, packet, sock->sockaddr);
-            sock->status = WAITING_SYN_ACK;
-            continue;
-        }
-
-        ret = recvfrom(sock->inSocket, &data, 52, 0, NULL, NULL);
-
-        if (ret < 0) // timeout
-        {
-            sock->status = DISCONNECTED;
-            continue;
-        }
-
-        // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
-        parsePacket(packet, data);
-
-        // verification du type packet doit etre ACK & SYN
-        if (!(packet->type & ACK) || !(packet->type & SYN)) {
-            sock->status = DISCONNECTED;
-            continue;
-        }
-
-        int b = packet->numSequence;
-        packet->type = ACK;
-        packet->numSequence = sock->numSeq + 1;
-        packet->numAcquittement = b + 1;
-
-        sendPacket(sock->outSocket, packet, sock->sockaddr);
-
-        break;
- */

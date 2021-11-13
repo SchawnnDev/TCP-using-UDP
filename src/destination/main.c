@@ -8,14 +8,13 @@
 
 #include "../../headers/global/utils.h"
 #include "../../headers/global/packet.h"
-#include "../../headers/global/socket_utils.h"
 
 enum status
 {
     DISCONNECTED = 0x0,
-    WAITING = 0x1,
-    ESTABLISHED = 0x2,
-    CLOSED = 0x3
+    WAITING_OPEN = 0x1,
+    WAITING_CLOSE = 0x2,
+    ESTABLISHED = 0x3
 };
 typedef enum status status_t;
 
@@ -39,48 +38,7 @@ struct tcp
 };
 typedef struct tcp *tcp_t;
 
-tcp_t createTcp(char *ip, int port_local, int port_medium)
-{
-    // alloc TCP general structure
-    tcp_t tcp = malloc(sizeof(struct tcp));
-    if(tcp == NULL) raler("malloc tcp");
-
-    // alloc TCP packet
-    tcp->packet = newPacket();
-
-    // TCP writing socket
-    tcp->outSocket = createSocket();
-    if(tcp->outSocket == -1)
-        raler("create outSocket");
-
-    // TCP adresses
-    struct sockaddr_in *sockAddr = prepareSendSocket(tcp->outSocket, ip, port_medium);
-    tcp->sockaddr = sockAddr;
-
-    // TCP reading socket
-    tcp->inSocket = createSocket();
-    if(tcp->inSocket == -1)
-    {
-        closeSocket(tcp->inSocket);
-        raler("create inSocket");
-    }
-    if(prepareRecvSocket(tcp->inSocket, port_local) == -1)
-    {
-        closeSocket(tcp->outSocket);
-        closeSocket(tcp->inSocket);
-        raler("prepareRecvSocket");
-    }
-
-    return tcp;
-}
-
-void destroyTcp(tcp_t tcp)
-{
-    closeSocket(tcp->outSocket);
-    closeSocket(tcp->inSocket);
-    destroyPacket(tcp->packet);
-    free(tcp);
-}
+#include "../../headers/global/socket_utils.h" // needs a TCP structure
 
 uint16_t checkPacket(tcp_t tcp, uint8_t idFlux)
 {
@@ -96,17 +54,14 @@ uint16_t checkPacket(tcp_t tcp, uint8_t idFlux)
     return tcp->packet->numSequence + 1;
 }
 
-void sendACK(tcp_t tcp, int doCheck, int isDuo, int isCustom)
+void sendACK(tcp_t tcp, int doCheck, uint8_t type, int isCustom)
 {
     // idFlux, bit ECN, windowSize => remains the same
     uint8_t idFlux = tcp->packet->idFlux;
     uint8_t ECN = tcp->packet->ECN;
     uint8_t size = tcp->packet->tailleFenetre;
 
-    uint8_t type = ACK; /* should always be ACK */
-    if(isDuo) type = SYN | ACK; /* unless it's 3 way hand-shake : SYN && ACK */
-
-    uint8_t numSeq = tcp->packet->numSequence; /* should remains the same */
+    uint8_t numSeq = tcp->packet->numSequence; /* generally, remain the same */
     if(isCustom) /* unless it's 3 way hand-shake : random numSeq */
     {
         srand(time(NULL));
@@ -149,11 +104,9 @@ void storeData(tcp_t tcp, uint8_t idFlux, char *data)
 
 void handle(tcp_t tcp)
 {
-
     status_t status;
 
-    /* more than one flux */
-    while(tcp->nb_flux > 0 && checkFluxes(tcp) > 0)
+    while(1)
     {
         /* receives a packet */
         if(recvPacket(tcp->packet, tcp->inSocket, 52) == -1)
@@ -162,6 +115,11 @@ void handle(tcp_t tcp)
             destroyTcp(tcp);
             raler("recvfrom");
         }
+
+        // destination is a server so it should'nt close, but in this case we use RST since it's never used
+        // at least that's what the teacher said, in order to close and free everything
+        if(tcp->nb_flux == 0 && tcp->packet->type == RST) // close TCP
+            break;
 
         /* check if the flux exists and get its status */
         if(tcp->flux[tcp->packet->idFlux] != NULL) // already exists, get status
@@ -181,29 +139,39 @@ void handle(tcp_t tcp)
                 tcp->flux[tcp->packet->idFlux]->last_numSeq = tcp->packet->numSequence + 1; // à voir, +1 ?
                 tcp->nb_flux++; // increments the total count of fluxes
             }
-
+            // else : want to connect
             /* no lastSeq check ; SYN | ACK ; random numSeq */
-            sendACK(tcp, 0, 1, 1);
-            tcp->flux[tcp->packet->idFlux]->status = WAITING; // waiting for ACK from the source
-            printf("> idFlux %d : WAITING\n", tcp->packet->idFlux);
+            sendACK(tcp, 0, SYN | ACK, 1);
+            tcp->flux[tcp->packet->idFlux]->status = WAITING_OPEN; // waiting for ACK from the source to open
+            printf("> idFlux %d : WAITING_OPEN\n", tcp->packet->idFlux);
         }
         else if(tcp->packet->type == ACK) /* continue 3 way hand-shake */
         {
-            if(status == WAITING) /* is waiting, not fully connected yet */
+            if(status == WAITING_OPEN) /* is waiting to be open, not fully connected yet */
+            {
                 tcp->flux[tcp->packet->idFlux]->status = ESTABLISHED;
-            printf("> idFlux %d : ESTABLISHED\n", tcp->packet->idFlux);
+                printf("> idFlux %d : ESTABLISHED\n", tcp->packet->idFlux);
+            } else if(status == WAITING_CLOSE)
+            {
+                tcp->flux[tcp->packet->idFlux]->status = DISCONNECTED;
+                free(tcp->flux[tcp->packet->idFlux]);
+                tcp->nb_flux--; // decrements the total count of fluxes
+                printf("> idFlux %d : DISCONNECTED\n", tcp->packet->idFlux);
+            }
         }
         else if(tcp->packet->type == FIN) /* close connection */
         {
             if(status == DISCONNECTED) /* already disconnected */
                 continue;
 
-            /* no lastSeq check ; classic ACK ; classic numSeq */
-            sendACK(tcp, 0, 0, 0);
-            tcp->flux[tcp->packet->idFlux]->status = DISCONNECTED;
-            free(tcp->flux[tcp->packet->idFlux]);
-            tcp->nb_flux--; // decrements the total count of fluxes
-            printf("> idFlux %d : DISCONNECTED\n", tcp->packet->idFlux);
+            // SEND ACK
+            sendACK(tcp, 0, ACK, 0); /* no lastSeq check ; ACK ; classic numSeq */
+
+            // SEND FIN
+            sendACK(tcp, 0, FIN, 1); /* no lastSeq check ; FIN ; random numSeq */
+
+            tcp->flux[tcp->packet->idFlux]->status = WAITING_CLOSE; // switch status : waiting for ACK
+            printf("> idFlux %d : WAITING_CLOSE\n", tcp->packet->idFlux);
         }
         else
         {
@@ -212,11 +180,10 @@ void handle(tcp_t tcp)
 
             /* check last numSeq ; classic ACK ; classic numSeq */
             storeData(tcp, tcp->packet->idFlux, tcp->packet->data); // stores data
-            sendACK(tcp, 1, 0, 0);
+            sendACK(tcp, 1, ACK, 0);
             printf("> idFlux %d : DATA\n", tcp->packet->idFlux);
         }
     }
-    printf("> Close connection\n");
 }
 
 /********************************
@@ -246,7 +213,11 @@ int main(int argc, char *argv[])
     printf("---------------\n");
 
     tcp_t tcp = createTcp(ip, port_local, port_medium);
+    tcp->packet = newPacket(); // alloc TCP packet
+
     handle(tcp); // handle destination
+
+    destroyPacket(tcp->packet); // destroy TCP packet
     destroyTcp(tcp);
 
     return 0;
