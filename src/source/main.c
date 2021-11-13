@@ -306,6 +306,17 @@ void *doManager(void *arg) {
     packet_t packet = newPacket();
     ssize_t return_value;
 
+    struct timeval tv;
+    tv.tv_usec = 0;
+    tv.tv_sec = TIMEOUT;
+
+    // On considère que les timeout sont important ici,
+    // Car on souhaite checker si le pointeur thread_status change
+    // Et si recvfrom est bloquant on pourra pas sortir du thread
+    if(setsockopt(main_thr.tcp->inSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        raler("setsockopt");
+    }
+
     do {
         /* receive packet */
         return_value = recvfrom(main_thr.tcp->inSocket, packet, 52, 0, NULL, NULL);
