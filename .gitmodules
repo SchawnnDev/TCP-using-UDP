@@ -1,6 +1,4 @@
+
 [submodule "tools/medium"]
 	path = tools/medium
-	url = git@git.unistra.fr:pvcmeyer/projet_algo_reseau2021.git
-[submodule "projet_algo_reseau2021"]
-	path = projet_algo_reseau2021
 	url = https://git.unistra.fr/pvcmeyer/projet_algo_reseau2021.git

@@ -283,6 +283,42 @@ void *handleGoBackN(void *arg) {
 }
 
 /**
+ *   if (sock->status == DISCONNECTED) {
+            // envoi du paquet
+            setPacket(packet, 0, SYN, sock->numSeq, 0, ECN_DISABLED, 52, "");
+            sendPacket(sock->outSocket, packet, sock->sockaddr);
+            sock->status = WAITING_SYN_ACK;
+            continue;
+        }
+
+        ret = recvfrom(sock->inSocket, &data, 52, 0, NULL, NULL);
+
+        if (ret < 0) // timeout
+        {
+            sock->status = DISCONNECTED;
+            continue;
+        }
+
+        // Inutile car la fonction est juste executée si disc ou wait : if(status == WAITING_SYN_ACK)
+        parsePacket(packet, data);
+
+        // verification du type packet doit etre ACK & SYN
+        if (!(packet->type & ACK) || !(packet->type & SYN)) {
+            sock->status = DISCONNECTED;
+            continue;
+        }
+
+        int b = packet->numSequence;
+        packet->type = ACK;
+        packet->numSequence = sock->numSeq + 1;
+        packet->numAcquittement = b + 1;
+
+        sendPacket(sock->outSocket, packet, sock->sockaddr);
+
+        break;
+ */
+
+/**
  * Thread pour gérer un flux pour lire et renvoyer les paquets d'un flux
  * Dans le schéma du stop and wait
  * @param arg Structure contenant arguments
@@ -293,7 +329,8 @@ void *handleStopWait(void *arg) {
     packet_t packet = newPacket();
     int packetsNb = args.bufLen / PACKET_DATA_SIZE; // nombre de paquets à envoyer
     int packetsDone = 0; // nombre de paquets finis
-    uint8_t seq = 2; // numéro de sequence
+    uint16_t seq = 0; // numéro de sequence
+    connection_status_t status = DISCONNECTED;
     packet_status_t packetStatus = SEND_PACKET; // statut du paquet
     ssize_t ret = -1; // retour d'erreur
     fd_set working_set; // fd_set pour le select
@@ -304,65 +341,104 @@ void *handleStopWait(void *arg) {
 
     do {
 
-        // ICI on doit gérer le 3way
-        // (pas encore fait)
-
-        // Si on attend un paquet, on rentre dans ce if
-        if (packetStatus == WAIT_ACK) {
-            if (ret == 0) {
-                // S'il y'a un timeout alors on veut renvoyer un paquet
-                packetStatus = RESEND_PACKET;
-            } else if (ret > 0) {
-                // S'il n'y a pas de timeout et qu'on arrive à lire un paquet
-                // Alors on lis le tube et on le traite
-
-                DEBUG_PRINT("HSW: ret > 0\n");
+        // Gestion du 3way
+        if(status == WAITING_SYN_ACK)
+        {
+            if(ret == 0)
+            {
+                status = DISCONNECTED;
+            } else if(ret > 0)
+            {
 
                 if (read(args.pipe_read, packet, 52) != 52)
                     raler("read pipe");
 
-                DEBUG_PRINT("HSW: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", args.fluxId, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
-
-                // Si l'ACQ passe cette condition alors il est valide
-                if (!(packet->type & ACK) || packet->numAcquittement != seq) { // on attend un ack
-                    packetStatus = RESEND_PACKET;
+                if (!(packet->type & ACK) || !(packet->type & SYN)) {
+                    status = DISCONNECTED;
                 } else {
-                    packetsDone++;
-                    packetStatus = SEND_PACKET;
+                    int b = packet->numSequence;
+                    packet->type = ACK;
+                    packet->numSequence = seq + 1;
+                    packet->numAcquittement = b + 1;
 
-                    // si tous les paquets sont passés, alors on arrête la boucle
-                    if (packetsDone >= packetsNb)
-                        break;
-
+                    sendPacket(args.socket->outSocket, packet, args.socket->sockaddr);
+                    status = ESTABLISHED;
                 }
-
             }
         }
 
-        // Si le statut est d'envoyer un paquet,
-        // Alors on change le numéro de séquence,
-        // On y ajoute les données en question
-        // en fonction du numéro de paquet que l'on envoie
-        if (packetStatus == SEND_PACKET) {
-            seq = seq == 0 ? 1 : 0;
-
-            // Ici on lit dans le buffer du flux,
-            int fromEnd = (packetsDone + 1) * PACKET_DATA_SIZE;
-
-            // on vérifie que le dernier buffer n'est pas plus grand que le buffer.
-            if (fromEnd > args.bufLen)
-                fromEnd = args.bufLen - fromEnd;
-
-            substr(args.buf, currentBuff, packetsDone * PACKET_DATA_SIZE, fromEnd);
+        if (status == DISCONNECTED) {
+            // envoi du paquet
+            seq = rand() % (UINT16_MAX / 2);
+            setPacket(packet, 0, SYN, seq, 0, ECN_DISABLED, 52, "");
+            sendPacket(args.socket->outSocket, packet, args.socket->sockaddr);
+            status = WAITING_SYN_ACK;
         }
 
-        DEBUG_PRINT("HSW: Send packet fluxid=%d, status=%s\n", args.fluxId, packetStatus == SEND_PACKET ? "Send packet" : (packetStatus == RESEND_PACKET ? "Resend packet" : "Wait ACK"));
-        // On set le paquet en question,
-        // puis on l'envoie
-        setPacket(packet, args.fluxId, 0, seq, 0, 0, 0, currentBuff);
-        sendPacket(args.socket->outSocket, packet, args.socket->sockaddr);
-        // on met le mode du thread en WAIT ACK
-        packetStatus = WAIT_ACK;
+
+        if(status == ESTABLISHED)
+        {
+            // Si on attend un paquet, on rentre dans ce if
+            if (packetStatus == WAIT_ACK) {
+                if (ret == 0) {
+                    // S'il y'a un timeout alors on veut renvoyer un paquet
+                    packetStatus = RESEND_PACKET;
+                } else if (ret > 0) {
+                    // S'il n'y a pas de timeout et qu'on arrive à lire un paquet
+                    // Alors on lis le tube et on le traite
+
+                    DEBUG_PRINT("HSW: ret > 0\n");
+
+                    if (read(args.pipe_read, packet, 52) != 52)
+                        raler("read pipe");
+
+                    DEBUG_PRINT("HSW: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", args.fluxId, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
+
+                    // AJOUTER ICI CHECK SI SYN-ACK POUR RENVOI ACK AU SERVEUR
+                    // (gestion du 3way)
+
+                    // Si l'ACQ passe cette condition alors il est valide
+                    if (!(packet->type & ACK) || packet->numAcquittement != seq) { // on attend un ack
+                        packetStatus = RESEND_PACKET;
+                    } else {
+                        packetsDone++;
+                        packetStatus = SEND_PACKET;
+
+                        // si tous les paquets sont passés, alors on arrête la boucle
+                        if (packetsDone >= packetsNb)
+                            break;
+
+                    }
+
+                }
+            }
+
+            // Si le statut est d'envoyer un paquet,
+            // Alors on change le numéro de séquence,
+            // On y ajoute les données en question
+            // en fonction du numéro de paquet que l'on envoie
+            if (packetStatus == SEND_PACKET) {
+                seq = seq == 0 ? 1 : 0;
+
+                // Ici on lit dans le buffer du flux,
+                int fromEnd = (packetsDone + 1) * PACKET_DATA_SIZE;
+
+                // on vérifie que le dernier buffer n'est pas plus grand que le buffer.
+                if (fromEnd > args.bufLen)
+                    fromEnd = args.bufLen - fromEnd;
+
+                substr(args.buf, currentBuff, packetsDone * PACKET_DATA_SIZE, fromEnd);
+            }
+
+            DEBUG_PRINT("HSW: Send packet fluxid=%d, status=%s\n", args.fluxId, packetStatus == SEND_PACKET ? "Send packet" : (packetStatus == RESEND_PACKET ? "Resend packet" : "Wait ACK"));
+            // On set le paquet en question,
+            // puis on l'envoie
+            setPacket(packet, args.fluxId, 0, seq, 0, 0, 0, currentBuff);
+            sendPacket(args.socket->outSocket, packet, args.socket->sockaddr);
+            // on met le mode du thread en WAIT ACK
+            packetStatus = WAIT_ACK;
+
+        }
 
         FD_ZERO(&working_set);
         FD_SET(args.pipe_read, &working_set);
