@@ -24,11 +24,12 @@
 enum flux_status {
     DISCONNECTED = 0x0,
     WAITING_SYN_ACK = 0x1,
-    ESTABLISHED = 0x2,
-    TERM_SEND_FIN = 0x3,
-    TERM_WAIT_ACK = 0x4,
-    TERM_WAIT_FIN = 0x5,
-    TERM_WAIT_TERM = 0x6
+    WAITING_ACK = 0x2,
+    ESTABLISHED = 0x3,
+    TERM_SEND_FIN = 0x4,
+    TERM_WAIT_ACK = 0x5,
+    TERM_WAIT_FIN = 0x6,
+    TERM_WAIT_TERM = 0x7
 };
 typedef enum flux_status flux_status_t;
 
@@ -63,12 +64,6 @@ modeTCP_t parseMode(char *mode) {
 struct flux {
     int fluxId;
     flux_status_t status;
-    packet_t
-            packets[UINT8_MAX];
-    int congestionWindowSize;
-    int lastReceivedACK;
-    int ackCounter;
-    int lastSentSeq;
     char *buf;
     int bufLen;
 };
@@ -90,8 +85,192 @@ struct manager {
 };
 
 void *doGoBackN(void *arg) {
+
+    // creates flux
     struct flux_args flux = *(struct flux_args *) arg;
-    printf("%d\n", flux.idFlux);
+    flux_status_t status = DISCONNECTED; // flux status by default
+
+    // creates a packet
+    packet_t packet = newPacket();
+
+    // variables
+    uint16_t numSeq = 0; // numSeq by default
+    uint8_t sliding_window = 1; // size of the window
+    ssize_t return_value = -1; // error return
+
+    // set counters
+    int nb_packets = flux.bufLen / PACKET_DATA_SIZE; // nb packets to send
+    int nb_done_packets = 0; // nb packets already sent
+    int nb_lost_packet = 0; // times lost the same packet
+
+    // set timeout : 500 ms
+    struct timeval tv;
+
+    // others
+    fd_set working_set; // fd_set used for select
+    char data[PACKET_DATA_SIZE]; // current data to send
+
+    do
+    {
+        // waiting for an answer
+        if(status == WAITING_ACK)
+        {
+            if (read(flux.pipe_read, packet, 52) != 52)
+                raler("read pipe");
+
+            if(packet->type & ACK && packet->type & SYN) // type is not ACK
+                status = WAITING_SYN_ACK;
+            else { // cannot be anything else than an ACK
+
+                DEBUG_PRINT("doGoBackN: Flux thread = %d, go packet, ack = %d, seqNum = %d, type = %s \n",
+                            flux.idFlux, packet->numAcquittement, packet->numSequence,
+                            packet->type & ACK ? "ACK" : "Other");
+
+                if(numSeq >= (nb_done_packets + sliding_window)) // only for the first ACK of a sequence
+                    sliding_window = packet->tailleFenetre;
+
+                if(return_value == 0) // timeout, resend packet instantly
+                {
+                    sliding_window /= 2;
+                    status = ESTABLISHED;
+                }
+                else if((nb_done_packets + 1) == packet->numAcquittement)
+                { // check if numAcq is the one we are expecting, wait for all ACKs
+                    nb_done_packets++;
+                    sliding_window++; // + one more packet can fit in the sliding window
+                    nb_lost_packet = 0; // reset
+                    if(numSeq == (nb_done_packets + 1)) // received all ACK we were supposed to
+                        status = ESTABLISHED;
+                    else if (nb_done_packets >= nb_packets)
+                    { // if every packet has been sent, we are done here
+                        status = TERM_SEND_FIN;
+                        DEBUG_PRINT("doGoBackN: debut TERM_SEND_FIN\n");
+                    }
+                }
+                else
+                { // not the one expected, resend packet instantly
+                    numSeq = packet->numAcquittement;
+                    nb_lost_packet++;
+                    if(nb_lost_packet == 3) // lost 3x same packet, reset sliding window
+                        sliding_window = 1;
+                    status = ESTABLISHED;
+                }
+
+                if(packet->ECN == ECN_ACTIVE) // ECN is active
+                    sliding_window = (uint8_t) (sliding_window * 0.90); // -10%, rounded down by cast
+            }
+        }
+
+        // trying to establish a connection
+        if (status == WAITING_SYN_ACK) {
+            if (return_value == 0) // if : timeout
+                status = DISCONNECTED; // switch back to default status
+            else if (return_value > 0) {
+                // read packet received from manager trough pipe
+                if (read(flux.pipe_read, packet, 52) != 52)
+                    raler("read pipe");
+
+                // expect : ACK SYN
+                if (!(packet->type & ACK) || !(packet->type & SYN))
+                    status = DISCONNECTED; // switch back to default status
+                else {
+                    /*int b = packet->numSequence;
+                    packet->numSequence = numSeq + 1;
+                    packet->numAcquittement = b + 1;*/
+
+                    // packet->numSequence reste le même non ?
+                    packet->type = ACK;
+                    packet->numAcquittement = packet->numSequence + 1;
+                    sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
+                    status = ESTABLISHED;
+                }
+            }
+        }
+
+        // about to start the connection
+        if (status == DISCONNECTED) { // send SYN, numSeq = random, numAcq = 0
+            numSeq = rand() % (UINT16_MAX / 2);
+            setPacket(packet, 0, SYN, numSeq, 0, ECN_DISABLED, 52, "");
+            sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
+            status = WAITING_SYN_ACK; // switch status
+        }
+
+        if(status == ESTABLISHED)
+        {
+            // reached the end of the sliding window, waiting for ACK
+            while(numSeq >= (nb_done_packets + sliding_window) && numSeq < nb_packets)
+            {
+                // get the data to send (whether it's SEND or RESEND)
+                int fromEnd = (nb_done_packets + 1) * PACKET_DATA_SIZE;
+                if (fromEnd > flux.bufLen)
+                    fromEnd = flux.bufLen - fromEnd;
+                substr(flux.buf, data, nb_done_packets * PACKET_DATA_SIZE, fromEnd);
+
+                DEBUG_PRINT("doGoBackN: Send packet fluxid=%d\n", flux.idFlux);
+
+                // send packet
+                setPacket(packet, flux.idFlux, 0, numSeq, 0, 0, sliding_window, data);
+                sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
+                numSeq++;
+            }
+            status = WAITING_ACK; // switch status : needs to make some space
+        }
+
+        // connection has started to close, trying to finish it
+        if (status >= TERM_WAIT_ACK && status <= TERM_WAIT_TERM) {
+            if (return_value == 0) // timeout
+            {
+                if (status == TERM_WAIT_ACK || status == TERM_WAIT_FIN) {
+                    status = TERM_SEND_FIN;
+                } else if (status == TERM_WAIT_TERM) {
+                    // Si le double temps d'attente du rtt est dépassé,
+                    // alors on peut stopper le programme.
+                    DEBUG_PRINT("doGoBackN: TERM_WAIT_TERM, thread stopping...\n");
+                    break;
+                }
+            } else if (return_value > 0) {
+                // read packet received from manager trough pipe
+                if (read(flux.pipe_read, packet, 52) != 52)
+                    raler("read pipe");
+
+                if (status == TERM_WAIT_FIN && packet->type & FIN)
+                {
+                    setPacket(packet, flux.idFlux, ACK, packet->numSequence,
+                              packet->numSequence + 1, 0, 0, "");
+                    sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
+                    status = TERM_WAIT_TERM;
+                }
+
+                if(status == TERM_WAIT_ACK && packet->type & ACK)
+                    status = TERM_WAIT_FIN;
+            }
+        }
+
+        // about to close the connection
+        if (status == TERM_SEND_FIN) {
+            numSeq = rand() % (UINT16_MAX / 2);
+            setPacket(packet, flux.idFlux, FIN, numSeq, 0, 0, 0, "");
+            sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
+            status = TERM_WAIT_ACK;
+        }
+
+        FD_ZERO(&working_set);
+        FD_SET(flux.pipe_read, &working_set);
+
+        DEBUG_PRINT("doGoBackN: Select %d and wait sec = %ld, usec = %ld\n", flux.pipe_read, tv.tv_sec, tv.tv_usec);
+
+        // timeout
+        tv.tv_sec = 0;
+        tv.tv_usec = status == TERM_WAIT_TERM ? 2 * TIMEOUT : TIMEOUT; // Si on attend la terminaison, on attends 2x le RTT
+
+        // at the end of the sliding window, waiting for a packet to continue
+        return_value = select(flux.pipe_read + 1, &working_set, NULL, NULL, &tv); // from manager thread through pipe
+        if (return_value == -1) raler("select ici\n");
+
+        DEBUG_PRINT("doGoBackN: Fin boucle\n");
+    }while(1);
+
+    destroyPacket(packet);
     pthread_exit(NULL);
 }
 
@@ -194,7 +373,7 @@ void *doStopWait(void *arg) {
                             // if every packet has been sent, we are done here
                             if (nb_done_packets >= nb_packets) {
                                 status = TERM_SEND_FIN;
-                                DEBUG_PRINT("HSW: debut TERM_SEND_FIN\n");
+                                DEBUG_PRINT("doStopWait: debut TERM_SEND_FIN\n");
                             }
                         }
                     }
@@ -220,7 +399,7 @@ void *doStopWait(void *arg) {
                 substr(flux.buf, data, nb_done_packets * PACKET_DATA_SIZE, fromEnd);
             }
 
-            DEBUG_PRINT("HSW: Send packet fluxid=%d, status=%s\n", flux.idFlux,
+            DEBUG_PRINT("doStopWait: Send packet fluxid=%d, status=%s\n", flux.idFlux,
                         packet_status == SEND_PACKET ? "Send packet" : (packet_status == RESEND_PACKET ? "Resend packet"
                                                                                                        : "Wait ACK"));
             // On set le paquet en question,
@@ -395,7 +574,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
         // creates a thread, corresponding to a flux
         // different function, depending on the mode the user chose
         // argument : flux informations -> idFlux, buffer, pipe fd
-        if (pthread_create(&thr_id[i], NULL, mode == STOP_AND_WAIT ? (void *) doStopWait : (void *) doGoBackN,
+        if (pthread_create(&thr_id[i], NULL, mode == GO_BACK_N ? (void *) doStopWait : (void *) doGoBackN,
                            &fluxes_thr[i]) > 0) {
             perror("pthread");
         }
@@ -452,12 +631,7 @@ int main(int argc, char *argv[]) {
     int port_local = string_to_int(argv[3]);
     int port_medium = string_to_int(argv[4]);
 
-    printf("---------------\n");
-    printf("Mode chosen : %d\n", mode);
-    printf("Destination address : %s\n", ip);
-    printf("Local port set at : %d\n", port_local);
-    printf("Destination port set at : %d\n", port_medium);
-    printf("---------------\n");
+    DEBUG_PRINT("\nMode chosen : %d\nDestination address : %s\nLocal port set at : %d\nDestination port set at : %d\n=================================\n", mode, ip, port_local, port_medium);
 
     tcp_t tcp = createTcp(ip, port_local, port_medium);
 
@@ -466,7 +640,7 @@ int main(int argc, char *argv[]) {
     fluxes[0]->buf = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     fluxes[0]->bufLen = 62;
     fluxes[0]->fluxId = 0;
-    handle(tcp, STOP_AND_WAIT, fluxes, 1);
+    handle(tcp, mode, fluxes, 1);
 
     destroyTcp(tcp);
 

@@ -60,7 +60,7 @@ $(OBJ_DIR_DESTINATION)/%.o: $(DESTINATION_DIR)/%.c
 # Run
 
 source_saw: title_src
-	@./bin/source "stop and wait" "127.0.0.1" 3333 4444
+	@./bin/source "stop-wait" "127.0.0.1" 3333 4444
 
 source_gbn: title_src
 	@./bin/source "go-back-n" "127.0.0.1" 3333 4444
