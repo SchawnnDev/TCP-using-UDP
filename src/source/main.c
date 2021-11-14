@@ -12,7 +12,7 @@
 #include "../../headers/global/packet.h"
 #include "../../headers/global/socket_utils.h" // needs a TCP structure
 
-#define TIMEOUT 2000000
+#define TIMEOUT 1000
 #define DEBUG 1
 
 #if defined(DEBUG) && DEBUG > 0
@@ -99,7 +99,7 @@ void *doGoBackN(void *arg) {
     ssize_t return_value = -1; // error return
 
     // set counters
-    int nb_packets = flux.bufLen / PACKET_DATA_SIZE; // nb packets to send
+    int nb_packets = (flux.bufLen - 1) / PACKET_DATA_SIZE + 1; // nb packets to send
     int nb_done_packets = 0; // nb packets already sent
     int nb_lost_packet = 0; // times lost the same packet
 
@@ -357,7 +357,6 @@ void *doStopWait(void *arg) {
     DEBUG_PRINT("flux flux=%d, Len: %d\n", flux.idFlux, flux.bufLen);
 
     // set counters
-    //int pageCount = (records - 1) / recordsPerPage + 1;
     int nb_packets = (flux.bufLen - 1) / PACKET_DATA_SIZE + 1; // nb packets to send
     int nb_done_packets = 0; // nb packets already sent
 
@@ -610,7 +609,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
     // list of all the threads id : manager + one for each flux
     pthread_t *thr_id = malloc(sizeof(pthread_t) * (nb_flux + 1));
     // list of all the threads related to fluxes : one for each flux
-    struct flux_args *fluxes_thr = malloc(sizeof(struct flux_args) * nb_flux);
+    struct flux_args* *fluxes_thr = malloc(sizeof(struct flux_args) * nb_flux);
     // list of all the pipes : one for each flux, fluxes can communicate with the manager
     int **pipes = malloc(sizeof(int) * nb_flux);
 
@@ -625,17 +624,17 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
     DEBUG_PRINT("Start manager thread\n");
     pthread_create(&thr_id[0], NULL, (void *) doManager, (void *) &main_thr);
 
-    printf("RPOUT %d\n", fluxes[1]->bufLen);
     // creates a thread for each flux
     for (int i = 1; i <= nb_flux; ++i) {
         flux_t flux = fluxes[i - 1];
-        fluxes_thr[i].bufLen = fluxes[1]->bufLen;
-        fluxes_thr[i].tcp = tcp;
-        fluxes_thr[i].idFlux = flux->fluxId;
+        fluxes_thr[i] = malloc(sizeof(struct flux_args));
+        fluxes_thr[i]->bufLen = flux->bufLen;
+        fluxes_thr[i]->tcp = tcp;
+        fluxes_thr[i]->idFlux = flux->fluxId;
         // fluxes_thr[i].status = &threadStatus;
         DEBUG_PRINT("handle, i-1: %d,fluxid=%d, bufLen=%d\n", i - 1, flux->fluxId, flux->bufLen);
 
-        fluxes_thr[i].buf = flux->buf;//flux->buf;// malloc(flux->bufLen);
+        fluxes_thr[i]->buf = flux->buf;//flux->buf;// malloc(flux->bufLen);
         //strcpy(fluxes_thr[i].buf, flux->buf);
 
         //fluxes_thr[i].buf = flux->buf;// malloc(flux->bufLen);
@@ -645,7 +644,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
         // open pipe for the thread (flux) to communicate with the manager
         pipes[i - 1] = malloc(sizeof(int) * 2);
         if (pipe(pipes[i - 1]) < 0) perror("pipe");
-        fluxes_thr[i].pipe_read = pipes[i - 1][0];
+        fluxes_thr[i]->pipe_read = pipes[i - 1][0];
         main_thr.pipes[i - 1] = pipes[i - 1][1];
         DEBUG_PRINT("Opened new pipe for flux=%d; read=%d, write=%d\n", i - 1, pipes[i - 1][0], pipes[i - 1][1]);
 
@@ -653,7 +652,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
         // different function, depending on the mode the user chose
         // argument : flux informations -> idFlux, buffer, pipe fd
         if (pthread_create(&thr_id[i], NULL, mode == GO_BACK_N ? (void *) doStopWait : (void *) doGoBackN,
-                           &fluxes_thr[i]) > 0) {
+                           fluxes_thr[i]) > 0) {
             perror("pthread");
         }
     }
@@ -719,9 +718,17 @@ int main(int argc, char *argv[]) {
     flux_t fluxes[2];
 
     fluxes[0] = malloc(sizeof(struct flux));
-    fluxes[0]->buf = malloc(62);
-    strcpy(fluxes[0]->buf, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
-    fluxes[0]->bufLen = 62;
+
+    int spam = rand() % UINT16_MAX;
+
+    fluxes[0]->buf = malloc(spam);
+
+    for (int i = 0; i < spam; ++i) {
+        fluxes[0]->buf[i] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[random () % 26];
+    }
+
+   // strcpy(fluxes[0]->buf, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    fluxes[0]->bufLen = spam;
     fluxes[0]->fluxId = 0;
 
     fluxes[1] = malloc(sizeof(struct flux));

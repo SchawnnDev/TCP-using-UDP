@@ -130,7 +130,7 @@ void handle(tcp_t tcp)
         else // doesnt exists yet, DISCONNECTED
             status = DISCONNECTED;
 
-        if(status == DISCONNECTED)
+        /*if(status == DISCONNECTED)
             DEBUG_PRINT("Current status = %s\n", "DISCONNECTED");
         else if(status == WAITING_OPEN)
             DEBUG_PRINT("Current status = %s\n", "WAITING_OPEN");
@@ -148,7 +148,7 @@ void handle(tcp_t tcp)
         else if(packet->type == RST)
             DEBUG_PRINT("Current type = %s\n", "RST");
         else
-            DEBUG_PRINT("Current type = %s\n", "DATA");
+            DEBUG_PRINT("Current type = %s\n", "DATA");*/
 
         /* check packet type */
         if(packet->type == SYN) /* start 3 way hand-shake */
@@ -238,16 +238,16 @@ void handle(tcp_t tcp)
             sendACK(tcp, packet, flux, 1, ACK, 0);
         }
 
-        if(flux[packet->idFlux]->status == DISCONNECTED)
+        /*if(flux[packet->idFlux]->status == DISCONNECTED)
             DEBUG_PRINT("New status = %s\n", "DISCONNECTED");
         else if(flux[packet->idFlux]->status == WAITING_OPEN)
             DEBUG_PRINT("New status = %s\n", "WAITING_OPEN");
         else if(flux[packet->idFlux]->status == WAITING_CLOSE)
             DEBUG_PRINT("New status = %s\n", "WAITING_CLOSE");
         else
-            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");
+            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");*/
     }
-    DEBUG_PRINT("Close connection\n");
+    //DEBUG_PRINT("Close connection\n");
     free(flux);
     destroyPacket(packet); // destroy TCP packet
 }
