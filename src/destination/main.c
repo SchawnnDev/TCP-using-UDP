@@ -168,6 +168,7 @@ void handle(tcp_t tcp)
             {
                 if(packet->numAcquittement == flux[packet->idFlux]->last_numSeq + 1)
                 {
+                    printf("Full received data from flux %d: %s\n", packet->idFlux, flux[packet->idFlux]->data);
                     flux[packet->idFlux]->status = DISCONNECTED;
                     free(flux[packet->idFlux]);
                     nb_flux--; // decrements the total count of fluxes
