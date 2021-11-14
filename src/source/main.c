@@ -629,7 +629,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
     // creates a thread for each flux
     for (int i = 1; i <= nb_flux; ++i) {
         flux_t flux = fluxes[i - 1];
-        fluxes_thr[i].bufLen = (*flux).bufLen;
+        fluxes_thr[i].bufLen = fluxes[1]->bufLen;
         fluxes_thr[i].tcp = tcp;
         fluxes_thr[i].idFlux = flux->fluxId;
         // fluxes_thr[i].status = &threadStatus;
@@ -727,7 +727,7 @@ int main(int argc, char *argv[]) {
     fluxes[1] = malloc(sizeof(struct flux));
     fluxes[1]->buf = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     fluxes[1]->bufLen = 62;
-    fluxes[1]->fluxId = 0;
+    fluxes[1]->fluxId = 1;
     handle(tcp, mode, fluxes, 2);
 
     destroyTcp(tcp);
