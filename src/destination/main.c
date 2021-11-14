@@ -114,15 +114,15 @@ void handle(tcp_t tcp)
             destroyTcp(tcp);
             raler("recvfrom");
         }
-        DEBUG_PRINT("\nPacket received\n");
+        DEBUG_PRINT("\n========== Packet received ==========\n");
 
         // destination is a server so it should'nt close, but in this case we use RST since it's never used
         // at least that's what the teacher said, in order to close and free everything
         if(nb_flux == 0 && packet->type == RST) // close TCP
             break;
 
-        DEBUG_PRINT("Active fluxes = %d\n", nb_flux);
-        DEBUG_PRINT("Current flux = %d\n", packet->idFlux);
+        DEBUG_PRINT("Total active fluxes = %d\n", nb_flux);
+        DEBUG_PRINT("Current idFlux = %d\n", packet->idFlux);
 
         /* check if the flux exists and get its status */
         if(flux[packet->idFlux] != NULL) // already exists, get status
@@ -130,8 +130,25 @@ void handle(tcp_t tcp)
         else // doesnt exists yet, DISCONNECTED
             status = DISCONNECTED;
 
-        DEBUG_PRINT("Current status = %d\n", status);
-        DEBUG_PRINT("Current type = %d\n", packet->type);
+        if(status == DISCONNECTED)
+            DEBUG_PRINT("Current status = %s\n", "DISCONNECTED");
+        else if(status == WAITING_OPEN)
+            DEBUG_PRINT("Current status = %s\n", "WAITING_OPEN");
+        else if(status == WAITING_CLOSE)
+            DEBUG_PRINT("Current status = %s\n", "WAITING_CLOSE");
+        else
+            DEBUG_PRINT("Current status = %s\n", "ESTABLISHED");
+
+        if(packet->type == ACK)
+            DEBUG_PRINT("Current type = %s\n", "ACK");
+        else if(packet->type == SYN)
+            DEBUG_PRINT("Current type = %s\n", "SYN");
+        else if(packet->type == FIN)
+            DEBUG_PRINT("Current type = %s\n", "FIN");
+        else if(packet->type == RST)
+            DEBUG_PRINT("Current type = %s\n", "RST");
+        else
+            DEBUG_PRINT("Current type = %s\n", "DATA");
 
         /* check packet type */
         if(packet->type == SYN) /* start 3 way hand-shake */
@@ -168,7 +185,8 @@ void handle(tcp_t tcp)
             {
                 if(packet->numAcquittement == flux[packet->idFlux]->last_numSeq + 1)
                 {
-                    printf("Full received data from flux %d: %s\n", packet->idFlux, flux[packet->idFlux]->data);
+                    DEBUG_PRINT("Flux %d is done\n", packet->idFlux);
+                    DEBUG_PRINT("All data received : %s\n", flux[packet->idFlux]->data);
                     flux[packet->idFlux]->status = DISCONNECTED;
                     free(flux[packet->idFlux]);
                     nb_flux--; // decrements the total count of fluxes
@@ -219,7 +237,15 @@ void handle(tcp_t tcp)
             storeData(tcp, flux, packet->idFlux, packet->data); // stores data
             sendACK(tcp, packet, flux, 1, ACK, 0);
         }
-        DEBUG_PRINT("New status = %d\n", status);
+
+        if(flux[packet->idFlux]->status == DISCONNECTED)
+            DEBUG_PRINT("New status = %s\n", "DISCONNECTED");
+        else if(flux[packet->idFlux]->status == WAITING_OPEN)
+            DEBUG_PRINT("New status = %s\n", "WAITING_OPEN");
+        else if(flux[packet->idFlux]->status == WAITING_CLOSE)
+            DEBUG_PRINT("New status = %s\n", "WAITING_CLOSE");
+        else
+            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");
     }
     DEBUG_PRINT("Close connection\n");
     free(flux);
