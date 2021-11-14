@@ -112,6 +112,7 @@ void *doGoBackN(void *arg) {
 
     do
     {
+
         if(status == WAITING_ACK) // waiting for all the ACKs of the previous sequence
         {
             DEBUG_PRINT("%d ===== WAITING_ACK =====\n", flux.idFlux);
@@ -219,8 +220,15 @@ void *doGoBackN(void *arg) {
         {
             DEBUG_PRINT("%d ===== DISCONNECTED =====\n", flux.idFlux);
 
+            // reset variables in case there was an issue somewhere
+            numSeq = 0;
+            sliding_window = 1;
+            return_value = -1;
+            nb_done_packets = 0;
+            nb_lost_packet = 0;
+
             numSeq = rand() % (UINT16_MAX / 2);
-            setPacket(packet, flux.idFlux, SYN, numSeq, 0, ECN_DISABLED, 52, "");
+            setPacket(packet, flux.idFlux, SYN, numSeq, 0, ECN_DISABLED, sliding_window, "");
             sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
             status = WAITING_SYN_ACK; // now waiting for a packet with SYN|ACK
 
@@ -235,10 +243,10 @@ void *doGoBackN(void *arg) {
             while(numSeq >= (nb_done_packets + sliding_window) && numSeq < nb_packets)
             {
                 // get the corresponding data we need to send
-                int fromEnd = (nb_done_packets + 1) * PACKET_DATA_SIZE;
+                int fromEnd = (numSeq + 1) * PACKET_DATA_SIZE;
                 if (fromEnd > flux.bufLen)
                     fromEnd = flux.bufLen - fromEnd;
-                substr(flux.buf, data, nb_done_packets * PACKET_DATA_SIZE, fromEnd);
+                substr(flux.buf, data, numSeq * PACKET_DATA_SIZE, fromEnd);
 
                 DEBUG_PRINT("%d ---> MESSAGE = %d %s\n", flux.idFlux, numSeq, data);
 
@@ -251,38 +259,43 @@ void *doGoBackN(void *arg) {
             DEBUG_PRINT("%d ---> End Sequence | ESTABLISHED to WAITING_ACK\n", flux.idFlux);
         }
 
-        // connection has started to close, trying to finish it
-        if (status >= TERM_WAIT_ACK && status <= TERM_WAIT_TERM) {
+        if (status >= TERM_WAIT_ACK && status <= TERM_WAIT_TERM) // continue close connection process
+        {
             DEBUG_PRINT("%d ===== TERM_WAIT_ACK - TERM_WAIT_TERM =====\n", flux.idFlux);
-            if (return_value == 0) // timeout
+
+            if (return_value == 0) // TIMEOUT
             {
-                if (status == TERM_WAIT_ACK || status == TERM_WAIT_FIN) {
+                if (status == TERM_WAIT_ACK || status == TERM_WAIT_FIN) // we need to restart the close connection process
+                {
                     status = TERM_SEND_FIN;
                     DEBUG_PRINT("%d ---> TIMEOUT : to TERM_SEND_FIN\n", flux.idFlux);
-                } else if (status == TERM_WAIT_TERM) {
-                    // Si le double temps d'attente du rtt est dépassé,
-                    // alors on peut stopper le programme.
+                }
+                else if (status == TERM_WAIT_TERM) // closing process has succeeded
+                {
                     DEBUG_PRINT("%d ---> TIMEOUT : TERM_WAIT_TERM, thread stopping...\n", flux.idFlux);
                     break;
                 }
-            } else if (return_value > 0) {
-                // read packet received from manager trough pipe
+            }
+            else if (return_value > 0)
+            {
+                // read packet received from manager (trough pipe)
                 if (read(flux.pipe_read, packet, 52) != 52)
                     raler("read pipe");
-
                 DEBUG_PRINT("%d ===== Read packet =====\n", flux.idFlux);
 
+                // waiting for FIN in order to send the last ACK
                 if (status == TERM_WAIT_FIN && packet->type & FIN)
                 {
-                    setPacket(packet, flux.idFlux, ACK, packet->numSequence,packet->numSequence + 1, 0, 0, "");
+                    setPacket(packet, flux.idFlux, ACK, packet->numSequence,packet->numSequence + 1, ECN_DISABLED, sliding_window, "");
                     sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
-                    status = TERM_WAIT_TERM;
+                    status = TERM_WAIT_TERM; // last step before the end
                     DEBUG_PRINT("%d ---> Wait FIN : TERM_WAIT_FIN to TERM_WAIT_TERM\n", flux.idFlux);
                 }
 
+                // we sent FIN and are waiting for its ACK
                 if(status == TERM_WAIT_ACK && packet->type & ACK)
                 {
-                    status = TERM_WAIT_FIN;
+                    status = TERM_WAIT_FIN; // continue the close connection process
                     DEBUG_PRINT("%d ---> Wait ACK (FIN) : TERM_WAIT_ACK to TERM_WAIT_FIN\n", flux.idFlux);
                 }
             }
@@ -293,7 +306,7 @@ void *doGoBackN(void *arg) {
             DEBUG_PRINT("%d ===== TERM_SEND_FIN =====\n", flux.idFlux);
 
             numSeq = rand() % (UINT16_MAX / 2);
-            setPacket(packet, flux.idFlux, FIN, numSeq, 0, ECN_DISABLED, 52, "");
+            setPacket(packet, flux.idFlux, FIN, numSeq, 0, ECN_DISABLED, sliding_window, "");
             sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
             status = TERM_WAIT_ACK; // now waiting for a packet with ACK
 
