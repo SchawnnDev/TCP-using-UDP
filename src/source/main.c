@@ -12,7 +12,7 @@
 #include "../../headers/global/packet.h"
 #include "../../headers/global/socket_utils.h" // needs a TCP structure
 
-#define TIMEOUT 2000000
+#define TIMEOUT 500000
 #define DEBUG 1
 
 #if defined(DEBUG) && DEBUG > 0
@@ -177,8 +177,7 @@ void *doStopWait(void *arg) {
                     // Si le serveur renvoie un ACK & SYN, même si le status est ESTABLISHED,
                     // alors on renvoie un ACK et on set le statut du paquet à RESEND_PAQUET
                     // pour qu'il renvoie le paquet DATA, car il a été ignoré par le serveur
-                    if(packet->type & ACK && packet->type & SYN)
-                    {
+                    if (packet->type & ACK && packet->type & SYN) {
                         packet->type = ACK;
                         packet->numAcquittement = packet->numSequence + 1;
                         sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
@@ -249,13 +248,11 @@ void *doStopWait(void *arg) {
                 if (read(flux.pipe_read, packet, 52) != 52)
                     raler("read pipe");
 
-                if(status == TERM_WAIT_FIN && packet->type & FIN)
-                {
+                if (status == TERM_WAIT_FIN && packet->type & FIN) {
                     status = TERM_WAIT_TERM;
                 }
 
-                if(status == TERM_WAIT_ACK && packet->type & ACK)
-                {
+                if (status == TERM_WAIT_ACK && packet->type & ACK) {
                     status = TERM_WAIT_FIN;
                 }
             }
@@ -275,7 +272,8 @@ void *doStopWait(void *arg) {
 
         // timeout
         tv.tv_sec = 0;
-        tv.tv_usec = status == TERM_WAIT_TERM ? 2 * TIMEOUT : TIMEOUT; // Si on attend la terminaison, on attends 2x le RTT
+        tv.tv_usec =
+                status == TERM_WAIT_TERM ? 2 * TIMEOUT : TIMEOUT; // Si on attend la terminaison, on attends 2x le RTT
 
         // waiting for a packet to be send from the manager (trough pipe)
         return_value = select(flux.pipe_read + 1, &working_set, NULL, NULL, &tv);
@@ -306,14 +304,14 @@ void *doManager(void *arg) {
     packet_t packet = newPacket();
     ssize_t return_value;
 
-    struct timeval tv;
-    tv.tv_usec = 0;
-    tv.tv_sec = TIMEOUT;
+    struct timeval timeval;
+    timeval.tv_usec = TIMEOUT;
+    timeval.tv_sec = 0;
 
     // On considère que les timeout sont important ici,
     // Car on souhaite checker si le pointeur thread_status change
     // Et si recvfrom est bloquant on pourra pas sortir du thread
-    if(setsockopt(main_thr.tcp->inSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+    if (setsockopt(main_thr.tcp->inSocket, SOL_SOCKET, SO_RCVTIMEO, &timeval, sizeof(timeval)) < 0) {
         raler("setsockopt");
     }
 
@@ -324,7 +322,10 @@ void *doManager(void *arg) {
 
         // S'il y'a un timeout on ignore, car les timeouts sont gérés indépendamment
         if (return_value < 0) // timeout
+        {
+            DEBUG_PRINT("doManager: timeout...\n");
             continue;
+        }
         DEBUG_PRINT("doManager: no timeout\n");
 
         // check : idFlux exists
@@ -342,6 +343,8 @@ void *doManager(void *arg) {
         // Car dans ce thread, on ne sait pas si les flux sont tous terminés ou non.
     } while (*main_thr.thr_status != STOP);
 
+    DEBUG_PRINT("doManager: main thread stopping...\n");
+
     destroyPacket(packet);
     pthread_exit(NULL);
 }
@@ -355,7 +358,7 @@ void *doManager(void *arg) {
  * @param fluxCount Nb de flux dans le tableau
  */
 void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
-    thread_status_t thr_status = START;
+    thread_status_t* thr_status = malloc(sizeof (thread_status_t));
     // list of all the threads id : manager + one for each flux
     pthread_t *thr_id = malloc(sizeof(pthread_t) * (nb_flux + 1));
     // list of all the threads related to fluxes : one for each flux
@@ -368,7 +371,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
     main_thr.tcp = tcp; // Socket receveur
     main_thr.nb_flux = nb_flux; // Nombre de flux
     main_thr.pipes = pipes; // Tableaux avec les descripteurs des tubes
-    main_thr.thr_status = &thr_status; // Statut du thread (ne marche surement pas)
+    main_thr.thr_status = thr_status; // Statut du thread (ne marche surement pas)
 
     // creates main thread (manager)
     DEBUG_PRINT("Start manager thread\n");
@@ -407,9 +410,11 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
             perror("pthread_join");
     }
 
+    DEBUG_PRINT("All flux threads stopped...\n");
+
     // Variable globale pour arrêter le thread de gestion
     // Fonctionne surement pas
-    thr_status = STOP;
+    *thr_status = STOP;
 
     // waiting for the manager to end
     if (pthread_join(thr_id[0], NULL) > 0)
@@ -426,6 +431,7 @@ void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
     free(pipes);
     free(fluxes_thr);
     free(thr_id);
+    free(thr_status);
 }
 
 /********************************
