@@ -12,7 +12,7 @@
 #include "../../headers/global/packet.h"
 #include "../../headers/global/socket_utils.h" // needs a TCP structure
 
-#define TIMEOUT 500000
+#define TIMEOUT 2000000
 #define DEBUG 1
 
 #if defined(DEBUG) && DEBUG > 0
@@ -63,12 +63,6 @@ modeTCP_t parseMode(char *mode) {
 struct flux {
     int fluxId;
     flux_status_t status;
-    packet_t
-            packets[UINT8_MAX];
-    int congestionWindowSize;
-    int lastReceivedACK;
-    int ackCounter;
-    int lastSentSeq;
     char *buf;
     int bufLen;
 };
@@ -78,13 +72,13 @@ struct flux_args {
     tcp_t tcp;
     int idFlux;
     int pipe_read;
-    char* buf;
+    char *buf;
     int bufLen;
 };
 
 struct manager {
     tcp_t tcp;
-    int **pipes;
+    int *pipes;
     int nb_flux;
     thread_status_t *thr_status;
 };
@@ -116,6 +110,8 @@ void *doStopWait(void *arg) {
     fd_set working_set; // fd_set used for select
     char data[PACKET_DATA_SIZE]; // current data to send
 
+    DEBUG_PRINT("flux flux=%d, Len: %d\n", flux.idFlux, flux.bufLen);
+
     // set counters
     //int pageCount = (records - 1) / recordsPerPage + 1;
     int nb_packets = (flux.bufLen - 1) / PACKET_DATA_SIZE + 1; // nb packets to send
@@ -124,7 +120,7 @@ void *doStopWait(void *arg) {
     // set timeout : 500 ms
     struct timeval tv;
 
-    DEBUG_PRINT("Start flux thread with data=%s\n", flux.buf);
+    DEBUG_PRINT("Start flux=%d, thread with data=%s (%d packets to send)\n", flux.idFlux, flux.buf, nb_packets);
 
     do {
 
@@ -155,7 +151,7 @@ void *doStopWait(void *arg) {
 
         if (status == DISCONNECTED) { // send SYN, numSeq = random, numAcq = 0
             numSeq = rand() % (UINT16_MAX / 2);
-            setPacket(packet, 0, SYN, numSeq, 0, ECN_DISABLED, 52, "");
+            setPacket(packet, flux.idFlux, SYN, numSeq, 0, ECN_DISABLED, 0, "");
             sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
             status = WAITING_SYN_ACK; // switch status
         }
@@ -224,7 +220,8 @@ void *doStopWait(void *arg) {
 
             DEBUG_PRINT("HSW: Send packet fluxid=%d, status=%s, content=%s\n", flux.idFlux,
                         packet_status == SEND_PACKET ? "Send packet" : (packet_status == RESEND_PACKET ? "Resend packet"
-                                                                                                       : "Wait ACK"), data);
+                                                                                                       : "Wait ACK"),
+                        data);
             // On set le paquet en question,
             // puis on l'envoie
             setPacket(packet, flux.idFlux, 0, numSeq, 0, 0, 0, data);
@@ -252,7 +249,7 @@ void *doStopWait(void *arg) {
                     raler("read pipe");
 
                 if (status == TERM_WAIT_FIN && packet->type & FIN) {
-                    setPacket(packet, flux.idFlux, ACK, packet->numSequence, packet->numSequence + 1 , 0, 0, "");
+                    setPacket(packet, flux.idFlux, ACK, packet->numSequence, packet->numSequence + 1, 0, 0, "");
                     sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
                     status = TERM_WAIT_TERM;
                 }
@@ -273,7 +270,7 @@ void *doStopWait(void *arg) {
         FD_ZERO(&working_set);
         FD_SET(flux.pipe_read, &working_set);
 
-        DEBUG_PRINT("doStopWait: Select %d and wait sec = %ld, usec = %ld\n", flux.pipe_read, tv.tv_sec, tv.tv_usec);
+        //DEBUG_PRINT("doStopWait: Select %d and wait sec = %ld, usec = %ld\n", flux.pipe_read, tv.tv_sec, tv.tv_usec);
 
         // timeout
         tv.tv_sec = 0;
@@ -285,7 +282,7 @@ void *doStopWait(void *arg) {
 
         if (return_value == -1) raler("select ici\n");
 
-        DEBUG_PRINT("doStopWait: Fin boucle\n");
+        // DEBUG_PRINT("doStopWait: Fin boucle\n");
 
     } while (1);
 
@@ -323,27 +320,29 @@ void *doManager(void *arg) {
     do {
         /* receive packet */
         return_value = recvfrom(main_thr.tcp->inSocket, packet, 52, 0, NULL, NULL);
-        DEBUG_PRINT("doManager: recvfrom socket = %d\n", main_thr.tcp->inSocket);
+        //  DEBUG_PRINT("doManager: recvfrom socket = %d\n", main_thr.tcp->inSocket);
 
         // S'il y'a un timeout on ignore, car les timeouts sont gérés indépendamment
         if (return_value < 0) // timeout
         {
-            DEBUG_PRINT("doManager: timeout...\n");
+            //DEBUG_PRINT("doManager: timeout...\n");
             continue;
         }
-        DEBUG_PRINT("doManager: no timeout\n");
+        // DEBUG_PRINT("doManager: no timeout\n");
 
+        DEBUG_PRINT("recv for flux = %d\n", packet->idFlux);
         // check : idFlux exists
         if (packet->idFlux >= main_thr.nb_flux)
             continue;
         DEBUG_PRINT("doManager: write to flux: %d, pipe_write = %d\n", packet->idFlux,
-                    main_thr.pipes[packet->idFlux][1]);
+                    main_thr.pipes[packet->idFlux]);
 
         // send packet to flux using pipes (flux corresponding to packet->idFlux)
-        return_value = write(main_thr.pipes[packet->idFlux][1], packet, 52);
-        if (return_value < 0)
-            perror("write");
-
+        return_value = write(main_thr.pipes[packet->idFlux], packet, 52);
+        if (return_value < 0) {
+            printf("Write failed for flux=%d, pipe fd=%d\n", packet->idFlux, main_thr.pipes[packet->idFlux]);
+            raler("manager: write");
+        }
         // Tant que la variable partagée "threadStatus" n'est pas terminée, on continue
         // Car dans ce thread, on ne sait pas si les flux sont tous terminés ou non.
     } while (*main_thr.thr_status != STOP);
@@ -363,51 +362,48 @@ void *doManager(void *arg) {
  * @param fluxCount Nb de flux dans le tableau
  */
 void handle(tcp_t tcp, modeTCP_t mode, flux_t *fluxes, int nb_flux) {
-    thread_status_t* thr_status = malloc(sizeof (thread_status_t));
+    thread_status_t *thr_status = malloc(sizeof(thread_status_t));
     // list of all the threads id : manager + one for each flux
     pthread_t *thr_id = malloc(sizeof(pthread_t) * (nb_flux + 1));
     // list of all the threads related to fluxes : one for each flux
     struct flux_args *fluxes_thr = malloc(sizeof(struct flux_args) * nb_flux);
-    // list of all the pipes : one for each flux, fluxes can communicat with the manager
+    // list of all the pipes : one for each flux, fluxes can communicate with the manager
     int **pipes = malloc(sizeof(int) * nb_flux);
 
     // creates manager of all the fluxes
     struct manager main_thr;
     main_thr.tcp = tcp; // Socket receveur
     main_thr.nb_flux = nb_flux; // Nombre de flux
-    main_thr.pipes = pipes; // Tableaux avec les descripteurs des tubes
+    main_thr.pipes = malloc(sizeof(int) * nb_flux); // Tableaux avec les descripteurs des tubes
     main_thr.thr_status = thr_status; // Statut du thread (ne marche surement pas)
 
     // creates main thread (manager)
     DEBUG_PRINT("Start manager thread\n");
     pthread_create(&thr_id[0], NULL, (void *) doManager, (void *) &main_thr);
 
+    printf("RPOUT %d\n", fluxes[1]->bufLen);
     // creates a thread for each flux
     for (int i = 1; i <= nb_flux; ++i) {
         flux_t flux = fluxes[i - 1];
+        fluxes_thr[i].bufLen = (*flux).bufLen;
         fluxes_thr[i].tcp = tcp;
         fluxes_thr[i].idFlux = flux->fluxId;
         // fluxes_thr[i].status = &threadStatus;
-        DEBUG_PRINT("handle, fluxid=%d\n", flux->fluxId);
-
-        fluxes_thr[i].bufLen = flux->bufLen;
-        char *ptr;
-        ptr = (char*)malloc(flux->bufLen);
-        strcpy(ptr, flux->buf);
-        fluxes_thr[i].buf = &ptr;
-
-        //fluxes_thr[i].buf = flux->buf;// malloc(flux->bufLen);
+        DEBUG_PRINT("handle, i-1: %d,fluxid=%d, bufLen=%d\n", i - 1, flux->fluxId, flux->bufLen);
 
 
-
+        fluxes_thr[i].buf = flux->buf;//flux->buf;// malloc(flux->bufLen);
         //strcpy(fluxes_thr[i].buf, flux->buf);
 
+        //fluxes_thr[i].buf = flux->buf;// malloc(flux->bufLen);
+        //strcpy(fluxes_thr[i].buf, flux->buf);
         //DEBUG_PRINT("Str cpy: flux=%s to args=%s\n", fluxes_thr[i].buf, flux->buf);
 
         // open pipe for the thread (flux) to communicate with the manager
         pipes[i - 1] = malloc(sizeof(int) * 2);
         if (pipe(pipes[i - 1]) < 0) perror("pipe");
         fluxes_thr[i].pipe_read = pipes[i - 1][0];
+        main_thr.pipes[i - 1] = pipes[i - 1][1];
         DEBUG_PRINT("Opened new pipe for flux=%d; read=%d, write=%d\n", i - 1, pipes[i - 1][0], pipes[i - 1][1]);
 
         // creates a thread, corresponding to a flux
@@ -482,12 +478,19 @@ int main(int argc, char *argv[]) {
 
     tcp_t tcp = createTcp(ip, port_local, port_medium);
 
-    flux_t fluxes[1];
+    flux_t fluxes[2];
     fluxes[0] = malloc(sizeof(struct flux));
-    fluxes[0]->buf = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    fluxes[0]->buf = malloc(62);
+    strcpy(fluxes[0]->buf, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
     fluxes[0]->bufLen = 62;
     fluxes[0]->fluxId = 0;
-    handle(tcp, STOP_AND_WAIT, fluxes, 1);
+    //
+    fluxes[1] = malloc(sizeof(struct flux));
+    fluxes[1]->buf = malloc(62);
+    strcpy(fluxes[1]->buf, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    fluxes[1]->bufLen = 62;
+    fluxes[1]->fluxId = 1;
+    handle(tcp, STOP_AND_WAIT, fluxes, 2);
 
     destroyTcp(tcp);
 
