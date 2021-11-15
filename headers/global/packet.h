@@ -128,6 +128,7 @@ int setPacket(packet_t packet, uint8_t idFlux, uint8_t type,
 }
 
 void showPacket(packet_t packet) {
+    printf("\n========= NEW PACKET =========\n");
     printf("Packet idFlux : %d\n", packet->idFlux);
     printf("Packet type : %d\n", packet->type);
     printf("Packet numSequence : %d\n", packet->numSequence);
@@ -135,6 +136,7 @@ void showPacket(packet_t packet) {
     printf("Packet ECN : %d\n", packet->ECN);
     printf("Packet tailleFenetre : %d\n", packet->tailleFenetre);
     printf("Packet data : %s\n", packet->data);
+    printf("==============================\n\n");
 }
 
 void parsePacket(packet_t packet, const char *data)

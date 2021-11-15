@@ -56,7 +56,6 @@ void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type
     uint8_t idFlux = packet->idFlux;
     uint8_t ECN = packet->ECN;
     uint8_t size = packet->tailleFenetre;
-
     uint8_t numSeq = packet->numSequence; /* generally, remain the same */
     if(isCustom) /* unless it's 3 way hand-shake : random numSeq */
     {
@@ -95,7 +94,7 @@ void storeData(tcp_t tcp, flux_t *flux, uint8_t idFlux, char *data)
     char *str = flux[idFlux]->data;
     size_t r = snprintf(flux[idFlux]->data, size, "%s%s", str, data);
     if(r >= size) // error while concat
-        destroyTcp(tcp);
+    destroyTcp(tcp);
 }
 
 void handle(tcp_t tcp)

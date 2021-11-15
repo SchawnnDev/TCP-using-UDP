@@ -168,7 +168,6 @@ void *doGoBackN(void *arg) {
 
                     if(nb_lost_packet == 3) // if we lost 3x the same packet
                         sliding_window = 1; // reset sliding window to 1
-
                     status = ESTABLISHED; // we need to resend the packet instantly
                     DEBUG_PRINT("%d ---> Lost ACK | numSeq %d | lost %d | WAITING_ACK to ESTABLISHED\n", flux.idFlux, numSeq, nb_lost_packet);
                 }
@@ -353,7 +352,7 @@ void *doStopWait(void *arg) {
     ssize_t return_value = -1; // error return
     fd_set working_set; // fd_set used for select
     char data[PACKET_DATA_SIZE]; // current data to send
-
+  
     DEBUG_PRINT("flux flux=%d, Len: %d\n", flux->idFlux, flux->bufLen);
 
     // set counters
@@ -522,7 +521,6 @@ void *doStopWait(void *arg) {
 
     } while (1);
 
-    pthread_exit(NULL);
 }
 
 /**
