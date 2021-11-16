@@ -4,13 +4,12 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-struct tcp
-{
-    int inSocket;
-    int outSocket;
-    struct sockaddr_in *sockaddr;
-};
-typedef struct tcp *tcp_t;
+#define DEBUG 1
+#if defined(DEBUG) && DEBUG > 0
+#define DEBUG_PRINT(fmt, args...) printf(fmt, ##args)
+#else
+#define DEBUG_PRINT(fmt, args...) /* Don't do anything in release builds */
+#endif
 
 /**
  * @fn      int createSocket()
@@ -27,12 +26,12 @@ int createSocket();
 void closeSocket(int socket);
 
 /**
- * @fn      struct sockaddr_in prepareSendSocket(int socket, char *address, int port)
+ * @fn      struct sockaddr_in *prepareSendSocket(int socket, char *address, int port)
  * @brief   Sets up a socket that will be used to send packets
  * @param   socket     Socket to prepare
- * @param   address    Adress the socket will be linked to
+ * @param   address    Address the socket will be linked to
  * @param   port       Port the socket will be linked to
- * @return  Structure handling the adress
+ * @return  Structure handling the address
  */
 struct sockaddr_in *prepareSendSocket(int socket, char *address, int port);
 
@@ -46,7 +45,7 @@ struct sockaddr_in *prepareSendSocket(int socket, char *address, int port);
 int prepareRecvSocket(int socket, int port);
 
 /**
- * @fn      void sendPacket(int socket, packet_t packet, struct sockaddr *sockaddr)
+ * @fn      void sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr)
  * @brief   Sends a packet using a given socket
  * @param   socket      Socket used to send a packet
  * @param   packet      Packet to be sent
@@ -64,27 +63,64 @@ int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr);
  */
 int recvPacket(packet_t packet, int socket, int size);
 
+/** @struct tcp
+ *  @brief This structure allows to communicate in a bidirectional way (TCP)
+ */
+/** @var int::inSocket
+ *  Member 'inSocket' contains the socket to receive messages
+ */
+/** @var int::outSocket
+ *  Member 'outSocket' contains the socket to send messages
+ */
+/** @var  struct sockaddr_in *::sockaddr
+*  Member 'sockaddr' contains the address used by "outSocket"
+*/
+struct tcp
+{
+    int inSocket;
+    int outSocket;
+    struct sockaddr_in *sockaddr;
+};
+typedef struct tcp *tcp_t;
+
+/**
+ * @fn      tcp_t createTcp(char *ip, int port_local, int port_medium)
+ * @brief   Creates a tcp structure
+ * @param   *ip             Address the outSocket will be linked to
+ * @param   port_local      Port the inSocket will be linked to
+ * @param   port_medium     Port the outSocket will be linked to
+ * @return  Creatd TCP structure
+ */
 tcp_t createTcp(char *ip, int port_local, int port_medium);
 
+/**
+ * @fn      void destroyTcp(tcp_t tcp)
+ * @brief   Destroys and frees a tcp structure
+ * @param   tcp     The structure to destroy
+ */
 void destroyTcp(tcp_t tcp);
 
 /*///////////*/
 /* FUNCTIONS */
 /*///////////*/
 
-int createSocket() {
+int createSocket()
+{
     return socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 }
 
-void closeSocket(int socket) {
+void closeSocket(int socket)
+{
     if (close(socket) < 0)
         raler("socket");
 }
 
-struct sockaddr_in *prepareSendSocket(int socket, char *address, int port) {
+struct sockaddr_in *prepareSendSocket(int socket, char *address, int port)
+{
     struct sockaddr_in *sockAddr = malloc(sizeof(struct sockaddr_in));
 
-    if (inet_pton(AF_INET, address, &(sockAddr->sin_addr)) <= 0) {
+    if (inet_pton(AF_INET, address, &(sockAddr->sin_addr)) <= 0)
+    {
         closeSocket(socket);
         raler("inet_pton");
     }
@@ -95,37 +131,42 @@ struct sockaddr_in *prepareSendSocket(int socket, char *address, int port) {
     return sockAddr;
 }
 
-int prepareRecvSocket(int socket, int port) {
+int prepareRecvSocket(int socket, int port)
+{
     struct sockaddr_in socketAddr;
     memset(&socketAddr, 0, sizeof(socketAddr));
     socketAddr.sin_family = AF_INET;
     socketAddr.sin_port = htons(port);
-    // printf("prepareRcv port: %d, new: %d\n", port, htons(port));
     socketAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    DEBUG_PRINT("prepareRcv port: %d, new: %d\n", port, htons(port));
 
     struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
-
     if (bind(socket, sockaddr, sizeof(socketAddr)) == -1)
         return -1;
 
     return 0;
 }
 
-int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr) {
+int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr)
+{
     struct sockaddr *sp = (struct sockaddr *) &(*sockaddr);
-   // printf("SendTo: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type | ACK ? "ACK" : "Other");
-
+    DEBUG_PRINT("SendTo: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n",
+                packet->idFlux, packet->numAcquittement, packet->numSequence,
+                packet->type | ACK ? "ACK" : "Other");
     return sendto(socket, packet, 52, 0, sp, sizeof(*sp)) == -1 ? -1 : 0;
 }
 
-int recvPacket(packet_t packet, int socket, int size) {
+int recvPacket(packet_t packet, int socket, int size)
+{
     struct sockaddr from;
     socklen_t addrlen = sizeof(from);
 
     if (recvfrom(socket, packet, size, 0, &from, &addrlen) == -1)
         return -1;
 
-    // printf("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
+    DEBUG_PRINT("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n",
+                packet->idFlux, packet->numAcquittement, packet->numSequence,
+                packet->type & ACK ? "ACK" : "Other");
 
     return 0;
 }

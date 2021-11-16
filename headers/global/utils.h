@@ -20,6 +20,15 @@ noreturn void raler(char *message);
  */
 int string_to_int(char *arg);
 
+/**
+ * @fn      void substr(const char *from, char *to, int fromStart, int fromEnd)
+ * @brief   Get the sub-string using two indexes
+ * @param   from        Original string
+ * @param   to          String to store the sub-string
+ * @param   fromStart   Index where the sub-string starts
+ * @param   fromEnd     Index where the sub-string ends
+ * @return  nothing to return, use of pointer
+ */
 void substr(const char *from, char *to, int fromStart, int fromEnd);
 
 /*///////////*/
@@ -29,7 +38,7 @@ void substr(const char *from, char *to, int fromStart, int fromEnd);
 noreturn void raler(char *message)
 {
     perror(message);
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 int string_to_int(char *arg)
@@ -56,17 +65,18 @@ int string_to_int(char *arg)
     return (int) N;
 }
 
-// Fonction pas très safe car aucune verif de taille pour to
-void substr(const char *from, char *to, int fromStart, int fromEnd) {
+// Not really safe since there is no check concerning the size of "to"
+void substr(const char *from, char *to, int fromStart, int fromEnd)
+{
     int j = 0;
     int len = fromEnd - fromStart;
 
-    for (int i = 0; i < len; ++i) {
-        if (j >= fromStart && j < fromEnd) {
+    for (int i = 0; i < len; ++i)
+    {
+        if (j >= fromStart && j < fromEnd)
             to[j++] = from[i];
-        } else {
+        else
             to[j++] = 0;
-        }
     }
 }
 

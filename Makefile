@@ -10,7 +10,9 @@ SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 TOOL_DIR = tools
+HEAD_DIR = headers
 ARCH_DIR = dist
+
 TIME_DIR = time
 TEST_DIR = test
 
@@ -89,7 +91,7 @@ clean:
 dist: clean
 	@mkdir -p $(ARCH_DIR)
 	@echo "> Archiving :"
-	tar -czvf $(ARCH_DIR)/AlgoReseaux_Projet.tar.gz Makefile README.md $(TOOL_DIR) $(SRC_DIR) $(TIME_DIR) $(TEST_DIR)
+	tar -czvf $(ARCH_DIR)/AlgoReseaux_Projet.tar.gz Makefile README.md $(TOOL_DIR) $(SRC_DIR) $(HEAD_DIR)
 
 report:
 	@echo "> Generating report:"

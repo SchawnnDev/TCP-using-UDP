@@ -7,7 +7,6 @@ uint8_t ACK = 0x10;
 uint8_t RST = 0x04;
 uint8_t FIN = 0x02;
 uint8_t SYN = 0x01;
-//uint8_t test = ack | rst | fin;
 
 uint8_t ECN_ACTIVE = 0x01;
 uint8_t ECN_DISABLED = 0x00;
@@ -46,7 +45,6 @@ struct packet
     uint8_t tailleFenetre;
     char data[PACKET_DATA_SIZE];
 };
-
 typedef struct packet *packet_t;
 
 /**
@@ -64,9 +62,10 @@ packet_t newPacket();
 void destroyPacket(packet_t packet);
 
 /**
- * @fn      packet_t setPacket(packet_t packet, uint8_t id, uint8_t type,
- *          uint8_t seq, uint8_t acq, uint8_t ECN, uint8_t size, char *data);
+ * @fn      int setPacket(packet_t packet, uint8_t idFlux, uint8_t type, uint16_t seq,
+                   uint16_t acq, uint8_t ECN, uint8_t size, char *data)
  * @brief   Inserts given values into a packet
+ * @param   packet  packet to set
  * @param   idFlux  packet's flux ID
  * @param   type    packet's type
  * @param   seq     packet's sequence number
@@ -86,14 +85,6 @@ int setPacket(packet_t packet, uint8_t idFlux, uint8_t type, uint16_t seq,
  */
 void showPacket(packet_t packet);
 
-/**
- * @fn      void parsePacket(packet_t packet, const char *data)
- * @brief   Store the received message into a packet
- * @param   packet  Empty packet
- * @param   data    Message received
- */
-void parsePacket(packet_t packet, const char *data);
-
 /*///////////*/
 /* FUNCTIONS */
 /*///////////*/
@@ -111,8 +102,9 @@ void destroyPacket(packet_t packet)
     free(packet);
 }
 
-int setPacket(packet_t packet, uint8_t idFlux, uint8_t type,
-                      uint16_t seq, uint16_t acq, uint8_t ECN, uint8_t size, char *data) {
+int setPacket(packet_t packet, uint8_t idFlux, uint8_t type, uint16_t seq,
+              uint16_t acq, uint8_t ECN, uint8_t size, char *data)
+{
     packet->idFlux = idFlux;
     packet->type = type;
     packet->numSequence = seq;
@@ -127,7 +119,8 @@ int setPacket(packet_t packet, uint8_t idFlux, uint8_t type,
     return 0;
 }
 
-void showPacket(packet_t packet) {
+void showPacket(packet_t packet)
+{
     printf("\n========= NEW PACKET =========\n");
     printf("Packet idFlux : %d\n", packet->idFlux);
     printf("Packet type : %d\n", packet->type);
@@ -137,19 +130,6 @@ void showPacket(packet_t packet) {
     printf("Packet tailleFenetre : %d\n", packet->tailleFenetre);
     printf("Packet data : %s\n", packet->data);
     printf("==============================\n\n");
-}
-
-void parsePacket(packet_t packet, const char *data)
-{
-    packet->idFlux = data[0];
-    packet->type = data[1];
-    packet->numSequence = data[2] | (uint16_t) data[3] << 8;
-    packet->numAcquittement = data[4] | (uint16_t) data[5] << 8;
-    packet->ECN = data[6];
-    packet->tailleFenetre = data[7];
-
-    for (int i = 8; i < 44; ++i)
-        packet->data[i - 8] = data[i];
 }
 
 #endif
