@@ -4,6 +4,8 @@ doc/report.pdf
 .idea/
 bin/
 src/source/test.c
+tools/venv
+tools/venv2
 
 # Prerequisites
 *.d

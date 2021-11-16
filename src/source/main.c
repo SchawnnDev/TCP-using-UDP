@@ -140,7 +140,7 @@ void *doGoBackN(void *arg) {
                     status = ESTABLISHED; // we need to resend the packet instantly
                     DEBUG_PRINT("%d ---> TIMEOUT | new window %d | WAITING_ACK to ESTABLISHED\n", flux.idFlux,
                                 sliding_window);
-                } else if ((nb_done_packets + 1) ==
+                } else if (nb_done_packets ==
                            packet->numAcquittement) // check if numAcq is the one we were expecting
                 {
                     nb_done_packets++; // this packet is over, it has been acknowledged
@@ -150,13 +150,16 @@ void *doGoBackN(void *arg) {
                     DEBUG_PRINT("%d ---> packets already done %d | new window %d\n", flux.idFlux, nb_done_packets,
                                 sliding_window);
 
+                    DEBUG_PRINT("numseq(%d) ?= (nb_done_packets: %d + 1 = %d)\n", numSeq, nb_done_packets, nb_done_packets+1);
+
                     if (nb_done_packets >= nb_packets) // if every packet has been sent, we are done here
                     {
                         status = TERM_SEND_FIN; // we start the close connection process
                         DEBUG_PRINT("%d ---> Start FIN | WAITING_ACK to TERM_SEND_FIN\n", flux.idFlux);
-                    } else if (numSeq == (nb_done_packets + 1)) // true if we received all the ACKs we were supposed to
+                    } else if (numSeq == nb_done_packets) // true if we received all the ACKs we were supposed to
                     {
                         status = ESTABLISHED; // we start a new sequence of packet to send
+                        numSeq = 0;
                         DEBUG_PRINT("%d ---> all ACKs -> new Sequence | WAITING_ACK to ESTABLISHED\n", flux.idFlux);
                     }
                 } else // not the ACK we expected, we lost a packet
@@ -207,6 +210,7 @@ void *doGoBackN(void *arg) {
                     packet->numAcquittement = packet->numSequence + 1;
                     sendPacket(flux.tcp->outSocket, packet, flux.tcp->sockaddr);
                     status = ESTABLISHED;
+                    numSeq = 0;
                     DEBUG_PRINT("%d ---> ACK sent | WAITING_SYN_ACK to ESTABLISHED\n", flux.idFlux);
                 }
             }
@@ -236,7 +240,8 @@ void *doGoBackN(void *arg) {
             DEBUG_PRINT("%d ===== ESTABLISHED ====== Start Sequence | WINDOW = %d\n", flux.idFlux, sliding_window);
 
             // sending packets until we reach the edge of the sliding window
-            while (numSeq >= (nb_done_packets + sliding_window) && numSeq < nb_packets) {
+            DEBUG_PRINT("numSeq: %d, nbDonePackets: %d, sliding_window: %d, nb_packets: %d\n", numSeq, nb_done_packets, sliding_window, nb_packets);
+            while (numSeq < (nb_done_packets + sliding_window) && numSeq < nb_packets) {
                 // get the corresponding data we need to send
                 int fromEnd = (numSeq + 1) * PACKET_DATA_SIZE;
                 if (fromEnd > flux.bufLen)
@@ -597,11 +602,11 @@ void handle(tcp_t tcp, modeTCP_t mode, struct flux *fluxes, int nb_flux) {
     // list of all the threads id : manager + one for each flux
     pthread_t *thr_id = malloc(sizeof(pthread_t) * (nb_flux + 1));
     // list of all the threads related to fluxes : one for each flux
-    struct flux_args fluxes_thr[nb_flux]; //= malloc(sizeof(struct flux_args) * nb_flux);
+    struct flux_args fluxes_thr[nb_flux];// = malloc(sizeof(struct flux_args) * nb_flux); // [nb_flux]; //=
     // list of all the pipes : one for each flux, fluxes can communicate with the manager
     int **pipes = malloc(sizeof(int) * nb_flux);
 
-    int write_pipes[nb_flux];
+    int write_pipes[nb_flux]; //= malloc(sizeof(int) * nb_flux);//[nb_flux];
 
     // creates manager of all the fluxes
     struct manager main_thr;
@@ -642,7 +647,7 @@ void handle(tcp_t tcp, modeTCP_t mode, struct flux *fluxes, int nb_flux) {
         // creates a thread, corresponding to a flux
         // different function, depending on the mode the user chose
         // argument : flux informations -> idFlux, buffer, pipe fd
-        if (pthread_create(&thr_id[i], NULL, mode == GO_BACK_N ? (void *) doStopWait : (void *) doGoBackN,
+        if (pthread_create(&thr_id[i], NULL, mode == STOP_AND_WAIT ? (void *) doStopWait : (void *) doGoBackN,
                            (void *) &fluxes_thr[i - 1]) > 0) {
             perror("pthread");
         }
@@ -711,19 +716,19 @@ int main(int argc, char *argv[]) {
 
     for (int i = 0; i < nbflux; ++i) {
 
-        int spam = rand() % UINT8_MAX + UINT8_MAX;
+        int spam = rand() % (UINT8_MAX) + UINT8_MAX*500 ;//* 10;// + UINT8_MAX * 1000;
 
         fluxes[i].buf = malloc(spam);
 
         for (int j = 0; j < spam; ++j) {
-            fluxes[0].buf[j] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[random() % 26];
+            fluxes[i].buf[j] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[random() % 26];
         }
 
         fluxes[i].bufLen = spam;
         fluxes[i].fluxId = i;
     }
 
-    handle(tcp, mode, fluxes, nbflux);
+    handle(tcp, STOP_AND_WAIT, fluxes, nbflux);
 
     destroyTcp(tcp);
 

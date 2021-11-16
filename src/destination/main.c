@@ -47,7 +47,7 @@ uint16_t checkPacket(packet_t packet, flux_t *flux, uint8_t idFlux)
         // false -> same lastNumSeq
     if(packet->numSequence == flux[idFlux]->last_numSeq + 1)
         flux[idFlux]->last_numSeq++;
-    return packet->numSequence + 1;
+    return packet->numSequence;
 }
 
 void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type, int isCustom)
