@@ -93,14 +93,14 @@ void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type
     uint8_t idFlux = packet->idFlux;
     uint8_t ECN = packet->ECN;
     uint8_t size = packet->tailleFenetre;
-    uint8_t numSeq = packet->numSequence; /* generally, remain the same */
+    uint16_t numSeq = packet->numSequence; /* generally, remain the same */
     if(isCustom) /* unless it's 3 way hand-shake : random numSeq */
     {
         srand(time(NULL));
         numSeq = rand() % (UINT16_MAX / 2);
     }
 
-    uint8_t numAcq = packet->numSequence + 1; /* unless it's hand-shake */
+    uint16_t numAcq = packet->numSequence + 1; /* unless it's hand-shake */
     if(doCheck) numAcq = checkPacket(packet, flux, idFlux); /* generally, check lastNumSeq */
 
     /* sets packet data */

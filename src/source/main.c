@@ -14,6 +14,7 @@
 
 #define TIMEOUT 50000
 #define DEBUG 1
+#define FLUX_NB 3
 
 #if defined(DEBUG) && DEBUG > 0
 #define DEBUG_PRINT(fmt, args...) printf(fmt, ##args)
@@ -239,7 +240,7 @@ void *doGoBackN(void *arg)
                     else if (numSeq == nb_done_packets) // true if we received all the ACKs we were supposed to
                     {
                         status = ESTABLISHED; // we start a new sequence of packet to send
-                        numSeq = 0;
+                        //numSeq = 0;
                         DEBUG_PRINT("%d ---> all ACKs -> new Sequence | WAITING_ACK to ESTABLISHED\n", flux.idFlux);
                     }
                 }
@@ -249,7 +250,11 @@ void *doGoBackN(void *arg)
                     nb_lost_packet++;
 
                     if (nb_lost_packet == 3) // if we lost 3x the same packet
+                    {
                         sliding_window = 1; // reset sliding window to 1
+                        nb_lost_packet = 0;
+                    }
+
                     status = ESTABLISHED; // we need to resend the packet instantly
                     DEBUG_PRINT("%d ---> Lost ACK | numSeq %d | lost %d | WAITING_ACK to ESTABLISHED\n", flux.idFlux,
                                 numSeq, nb_lost_packet);
@@ -668,11 +673,11 @@ void *doManager(void *arg)
     {
         /* receive packet */
         return_value = recvfrom(main_thr.tcp->inSocket, packet, 52, 0, NULL, NULL);
-        //  DEBUG_PRINT("doManager: recvfrom socket = %d\n", main_thr.tcp->inSocket);
+        //DEBUG_PRINT("doManager: recvfrom socket = %d\n", main_thr.tcp->inSocket);
 
         if (return_value < 0) // timeout
         {
-            //DEBUG_PRINT("doManager: timeout...\n");
+            DEBUG_PRINT("doManager: timeout...\n");
             continue; // ignored because it's handled separately
         }
 
@@ -714,11 +719,11 @@ void handle(tcp_t tcp, modeTCP_t mode, struct flux *fluxes, int nb_flux)
 {
     thread_status_t *thr_status = malloc(sizeof(thread_status_t));
     pthread_t *thr_id = malloc(sizeof(pthread_t) * (nb_flux + 1)); // list of all the threads id : manager + one for each flux
-    struct flux_args fluxes_thr[nb_flux]; // list of all the threads related to fluxes : one for each flux
+    struct flux_args fluxes_thr[FLUX_NB]; // list of all the threads related to fluxes : one for each flux
 
     // list of all the pipes : one for each flux, fluxes can communicate with the manager
     int **pipes = malloc(sizeof(int) * nb_flux);
-    int write_pipes[nb_flux]; // used for the manager (writing pipes)
+    int write_pipes[FLUX_NB]; // used for the manager (writing pipes)
 
     // creates the manager of all the fluxes
     struct manager main_thr;
@@ -818,13 +823,13 @@ int main(int argc, char *argv[])
 
     tcp_t tcp = createTcp(ip, port_local, port_medium);
 
-    int nbflux = 2;
-    struct flux fluxes[nbflux];
+    int nbflux = FLUX_NB;
+    struct flux fluxes[FLUX_NB];
 
     for (int i = 0; i < nbflux; ++i)
     {
 
-        int spam = rand() % (UINT8_MAX) + UINT8_MAX*500 ;//* 10;// + UINT8_MAX * 1000;
+        int spam = 20 * 44;//; rand() % (UINT8_MAX) + UINT8_MAX * 30;// + UINT8_MAX*500 ;//* 10;// + UINT8_MAX * 1000;
         fluxes[i].buf = malloc(spam);
 
         for (int j = 0; j < spam; ++j)
@@ -834,7 +839,7 @@ int main(int argc, char *argv[])
         fluxes[i].fluxId = i;
     }
 
-    handle(tcp, STOP_AND_WAIT, fluxes, nbflux);
+    handle(tcp, GO_BACK_N, fluxes, nbflux);
 
     destroyTcp(tcp);
 
