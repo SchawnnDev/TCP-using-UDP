@@ -26,7 +26,8 @@ enum status
     DISCONNECTED = 0x0,         /**< Connection is not established */
     WAITING_OPEN = 0x1,         /**< Connection is about to be open */
     WAITING_CLOSE = 0x2,        /**< Connection is about to be closed */
-    ESTABLISHED = 0x3           /**< Connection is established */
+    ESTABLISHED = 0x3,          /**< Connection is established */
+    CLOSED = 0x4                /**< Connection is closed */
 };
 typedef enum status status_t;
 
@@ -241,6 +242,7 @@ void handle(tcp_t tcp)
                     flux[packet->idFlux]->status = DISCONNECTED;
                     free(flux[packet->idFlux]);
                     nb_flux--; // decrements the total count of fluxes
+                    status = CLOSED;
                 } else // ACK && FIN needs to be sent again
                 {
                     // SEND ACK
@@ -290,7 +292,9 @@ void handle(tcp_t tcp)
             sendACK(tcp, packet, flux, 1, ACK, 0);
         }
 
-        if(flux[packet->idFlux]->status == DISCONNECTED)
+        if(status == CLOSED)
+            DEBUG_PRINT("New status = %s\n", "CLOSED");
+        else if(flux[packet->idFlux]->status == DISCONNECTED)
             DEBUG_PRINT("New status = %s\n", "DISCONNECTED");
         else if(flux[packet->idFlux]->status == WAITING_OPEN)
             DEBUG_PRINT("New status = %s\n", "WAITING_OPEN");

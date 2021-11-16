@@ -205,6 +205,11 @@ void *doGoBackN(void *arg)
             if (packet->type & ACK && packet->type & SYN) // ACK|SYN
             {
                 status = WAITING_SYN_ACK; // we need to send a new ACK
+                numSeq = 0;
+                sliding_window = 1;
+                return_value = -1;
+                nb_done_packets = 0;
+                nb_lost_packet = 0;
                 DEBUG_PRINT("%d ---> ACK|SYN Restart handshake : WAITING_ACK to WAITING_SYN_ACK\n", flux.idFlux);
             }
             else // it cannot be anything else other than an ACK here
@@ -218,6 +223,8 @@ void *doGoBackN(void *arg)
                 if (return_value == 0) // TIMEOUT
                 {
                     sliding_window /= 2; // size of the sliding window is divided by 2
+                    if(sliding_window < 1) sliding_window = 1;
+                    numSeq = nb_done_packets; // restart sending again from the last received ACK
                     status = ESTABLISHED; // we need to resend the packet instantly
                     DEBUG_PRINT("%d ---> TIMEOUT | new window %d | WAITING_ACK to ESTABLISHED\n", flux.idFlux,
                                 sliding_window);
@@ -246,7 +253,7 @@ void *doGoBackN(void *arg)
                 }
                 else // not the ACK we expected, we lost a packet
                 {
-                    numSeq = packet->numAcquittement; // get the numSeq of the packet we lost
+                    numSeq = nb_done_packets; // restart sending again from the last received ACK
                     nb_lost_packet++;
 
                     if (nb_lost_packet == 3) // if we lost 3x the same packet
