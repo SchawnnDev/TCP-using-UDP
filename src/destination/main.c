@@ -18,15 +18,33 @@
 #define DEBUG_PRINT(fmt, args...) /* Don't do anything in release builds */
 #endif
 
+/** @enum status
+ *  @brief This enum describes the current status of a flux
+ */
 enum status
 {
-    DISCONNECTED = 0x0,
-    WAITING_OPEN = 0x1,
-    WAITING_CLOSE = 0x2,
-    ESTABLISHED = 0x3
+    DISCONNECTED = 0x0,         /**< Connection is not established */
+    WAITING_OPEN = 0x1,         /**< Connection is about to be open */
+    WAITING_CLOSE = 0x2,        /**< Connection is about to be closed */
+    ESTABLISHED = 0x3           /**< Connection is not established */
 };
 typedef enum status status_t;
 
+/** @struct flux
+ *  @brief This structure stores information about a flux
+ */
+/** @var status_t::status
+ *  Member 'status' contains the current status
+ */
+/** @var uint16_t::last_numSeq
+ *  Member 'last_numSeq' contains the last sequence number received
+ */
+/** @var  size_t::size
+*  Member 'size' contains the size of the current data string
+*/
+/** @var  char *::data
+*  Member 'data' contains the message sent since the beginning of the flux
+*/
 struct flux
 {
     status_t status;
@@ -36,6 +54,14 @@ struct flux
 };
 typedef struct flux *flux_t;
 
+/**
+ * @fn      uint16_t checkPacket(packet_t packet, flux_t *flux, uint8_t idFlux)
+ * @brief   Checks if the numSeq received is the one expected and updates it
+ * @param   packet     Packet received
+ * @param   *flux      All the fluxes
+ * @param   idFlux     Indicates in which flux to search
+ * @return  The sequence number
+ */
 uint16_t checkPacket(packet_t packet, flux_t *flux, uint8_t idFlux)
 {
     // stop and wait, no window is needed, same numSeq
@@ -50,6 +76,17 @@ uint16_t checkPacket(packet_t packet, flux_t *flux, uint8_t idFlux)
     return packet->numSequence;
 }
 
+/**
+ * @fn      void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type, int isCustom)
+ * @brief   sending ACK to the source depending on multiple parameters
+ * @param   tcp         TCP structure
+ * @param   packet      Packet received
+ * @param   *flux       All the fluxes
+ * @param   doCheck     Boolean if we have to check the sequence number with the last sequence number received (false during the handshakes, else it's true)
+ * @param   type        Type of the packet we will be sending
+ * @param   isCustom    Boolean if we want to send a random sequence number (true during the handshakes, else it's true)
+ * @return  The sequence number
+ */
 void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type, int isCustom)
 {
     // idFlux, bit ECN, windowSize => remains the same
@@ -63,7 +100,7 @@ void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type
         numSeq = rand() % (UINT16_MAX / 2);
     }
 
-    uint8_t numAcq = packet->numSequence + 1; /* unless it's open/close hand-shake */
+    uint8_t numAcq = packet->numSequence + 1; /* unless it's hand-shake */
     if(doCheck) numAcq = checkPacket(packet, flux, idFlux); /* generally, check lastNumSeq */
 
     /* sets packet data */
@@ -84,19 +121,34 @@ void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type
     }
 }
 
+/**
+ * @fn      void storeData(tcp_t tcp, flux_t *flux, uint8_t idFlux, char *data)
+ * @brief   Get and concat the data received in the flux structure
+ * @param   tcp         TCP structure
+ * @param   *flux       All the fluxes
+ * @param   idFlux      Indicates in which flux to look
+ * @param   *data       The data to add to a specified flux
+ */
 void storeData(tcp_t tcp, flux_t *flux, uint8_t idFlux, char *data)
 {
-    /* flux data size -> size = size + data_size */
+    /* flux data size : size = size + data_size */
     size_t size = flux[idFlux]->size + PACKET_DATA_SIZE;
+
     /* reallocs data related to its new size */
     flux[idFlux]->data = realloc(flux[idFlux]->data, size);
+
     /* update data buffer */
     char *str = flux[idFlux]->data;
     size_t r = snprintf(flux[idFlux]->data, size, "%s%s", str, data);
-    if(r >= size) // error while concat
-    destroyTcp(tcp);
+    if(r >= size) // error while concatening
+        destroyTcp(tcp);
 }
 
+/**
+ * @fn      void handle(tcp_t tcp)
+ * @brief   Executes the "destination" mechanism
+ * @param   tcp         TCP structure
+ */
 void handle(tcp_t tcp)
 {
     status_t status; // flux status
@@ -123,13 +175,13 @@ void handle(tcp_t tcp)
         DEBUG_PRINT("Total active fluxes = %d\n", nb_flux);
         DEBUG_PRINT("Current idFlux = %d\n", packet->idFlux);
 
-        /* check if the flux exists and get its status */
+        /* check if the flux already exists and get its status */
         if(flux[packet->idFlux] != NULL) // already exists, get status
             status = flux[packet->idFlux]->status;
-        else // doesnt exists yet, DISCONNECTED
+        else // doesnt exists yet, default DISCONNECTED
             status = DISCONNECTED;
 
-        /*if(status == DISCONNECTED)
+        if(status == DISCONNECTED)
             DEBUG_PRINT("Current status = %s\n", "DISCONNECTED");
         else if(status == WAITING_OPEN)
             DEBUG_PRINT("Current status = %s\n", "WAITING_OPEN");
@@ -147,7 +199,7 @@ void handle(tcp_t tcp)
         else if(packet->type == RST)
             DEBUG_PRINT("Current type = %s\n", "RST");
         else
-            DEBUG_PRINT("Current type = %s\n", "DATA");*/
+            DEBUG_PRINT("Current type = %s\n", "DATA");
 
         /* check packet type */
         if(packet->type == SYN) /* start 3 way hand-shake */
@@ -168,7 +220,7 @@ void handle(tcp_t tcp)
             flux[packet->idFlux]->last_numSeq = packet->numSequence;
             flux[packet->idFlux]->status = WAITING_OPEN; // waiting for ACK from the source to open
         }
-        else if(packet->type == ACK)
+        else if(packet->type == ACK) /* waiting for ACKs while trying to open/close connection */
         {
             if(status == WAITING_OPEN) /* is waiting to be open, not fully connected yet */
             {
@@ -180,7 +232,7 @@ void handle(tcp_t tcp)
                     flux[packet->idFlux]->last_numSeq = packet->numSequence;
                     flux[packet->idFlux]->status = WAITING_OPEN; // waiting for ACK from the source to open
                 }
-            } else if(status == WAITING_CLOSE)
+            } else if(status == WAITING_CLOSE) /* is waiting to be close, not fully closed yet */
             {
                 if(packet->numAcquittement == flux[packet->idFlux]->last_numSeq + 1)
                 {
@@ -189,7 +241,8 @@ void handle(tcp_t tcp)
                     flux[packet->idFlux]->status = DISCONNECTED;
                     free(flux[packet->idFlux]);
                     nb_flux--; // decrements the total count of fluxes
-                } else { // ACK && FIN needs to be sent again
+                } else // ACK && FIN needs to be sent again
+                {
                     // SEND ACK
                     sendACK(tcp, packet, flux, 0, ACK, 0); /* no lastSeq check ; ACK ; classic numSeq */
 
@@ -237,23 +290,21 @@ void handle(tcp_t tcp)
             sendACK(tcp, packet, flux, 1, ACK, 0);
         }
 
-        /*if(flux[packet->idFlux]->status == DISCONNECTED)
+        if(flux[packet->idFlux]->status == DISCONNECTED)
             DEBUG_PRINT("New status = %s\n", "DISCONNECTED");
         else if(flux[packet->idFlux]->status == WAITING_OPEN)
             DEBUG_PRINT("New status = %s\n", "WAITING_OPEN");
         else if(flux[packet->idFlux]->status == WAITING_CLOSE)
             DEBUG_PRINT("New status = %s\n", "WAITING_CLOSE");
         else
-            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");*/
+            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");
     }
-    //DEBUG_PRINT("Close connection\n");
+
+    DEBUG_PRINT("Close connection\n");
     free(flux);
     destroyPacket(packet); // destroy TCP packet
 }
 
-/********************************
- * Main program
- * *******************************/
 int main(int argc, char *argv[])
 {
 
