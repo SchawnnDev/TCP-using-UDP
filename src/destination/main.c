@@ -26,7 +26,7 @@ enum status
     DISCONNECTED = 0x0,         /**< Connection is not established */
     WAITING_OPEN = 0x1,         /**< Connection is about to be open */
     WAITING_CLOSE = 0x2,        /**< Connection is about to be closed */
-    ESTABLISHED = 0x3           /**< Connection is not established */
+    ESTABLISHED = 0x3           /**< Connection is established */
 };
 typedef enum status status_t;
 
@@ -305,6 +305,10 @@ void handle(tcp_t tcp)
     destroyPacket(packet); // destroy TCP packet
 }
 
+/**
+ * @fn      int main(int argc, char *argv[])
+ * @brief   Initialize and starts everything
+ */
 int main(int argc, char *argv[])
 {
 
