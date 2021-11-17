@@ -249,6 +249,12 @@ void *doGoBackN(void *arg)
                     if(flux.idFlux == 0)
                         DEBUG_PRINT("\t\t\t%d ---> packets already done %d | new window %d\n", flux.idFlux, nb_done_packets, sliding_window);
 
+                    if (nb_done_packets >= nb_packets) // if every packet has been sent, we are done here
+                    {
+                        status = TERM_SEND_FIN; // we start the close connection process
+                        //DEBUG_PRINT("%d ---> Start FIN | WAITING_ACK to TERM_SEND_FIN\n", flux.idFlux);
+                    }
+
                     /* this packet is over, it has been acknowledged
                     sending_window[nb_done_packets] = 1;*/
 
@@ -449,8 +455,10 @@ void *doGoBackN(void *arg)
         tv.tv_sec = 0;
         if(status == TERM_WAIT_TERM) // 2x longer after the last ACK in the close connection process
             tv.tv_usec = 2 * TIMEOUT;
-        else // one timeout for each packet send
+        if(status == ESTABLISHED)
             tv.tv_usec = sliding_window * TIMEOUT;
+        else // one timeout for each packet send
+            tv.tv_usec = TIMEOUT;
 
         DEBUG_PRINT("%d ===== SELECT ===== %d and wait sec = %ld, usec = %ld ", flux.idFlux, flux.pipe_read, tv.tv_sec, tv.tv_usec);
 
