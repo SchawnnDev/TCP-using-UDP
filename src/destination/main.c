@@ -49,11 +49,9 @@ typedef enum status status_t;
 struct flux
 {
     status_t status;
+    uint16_t last_numSeq;
     size_t size;
     char *data;
-    uint8_t window;
-    uint16_t end;
-    uint16_t done;
 };
 typedef struct flux *flux_t;
 
@@ -65,19 +63,19 @@ typedef struct flux *flux_t;
  * @param   idFlux     Indicates in which flux to search
  * @return  The sequence number
  */
-/*uint16_t checkPacket(packet_t packet, flux_t *flux, uint8_t idFlux)
+uint16_t checkPacket(packet_t packet, flux_t *flux, uint8_t idFlux)
 {
     // stop and wait, no window is needed, same numSeq
     if(packet->tailleFenetre == 0)
         return packet->numSequence;
 
     // go back n, expect numSeq to be lastNumSeq + 1
-        // true -> increment lastNumSeq, new lastNumSeq
-        // false -> same lastNumSeq
-    if(packet->numSequence == flux[idFlux]->last_numSeq + 1)
-        flux[idFlux]->last_numSeq++;
-    return packet->numSequence;
-}*/
+    // true -> increment lastNumSeq, new lastNumSeq
+    // false -> same lastNumSeq
+    if(packet->numSequence == flux[idFlux]->last_numSeq + 1 || packet->numSequence == 0)
+        flux[idFlux]->last_numSeq = packet->numSequence;
+    return flux[idFlux]->last_numSeq;
+}
 
 /**
  * @fn      void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type, int isCustom)
@@ -90,25 +88,23 @@ typedef struct flux *flux_t;
  * @param   isCustom    Boolean if we want to send a random sequence number (true during the handshakes, else it's true)
  * @return  The sequence number
  */
-void sendACK(tcp_t tcp, packet_t packet, int ack, uint8_t type, int isCustom)
+void sendACK(tcp_t tcp, packet_t packet, flux_t *flux, int doCheck, uint8_t type, int isCustom)
 {
     // idFlux, bit ECN, windowSize => remains the same
     uint8_t idFlux = packet->idFlux;
     uint8_t ECN = packet->ECN;
     uint8_t size = packet->tailleFenetre;
     uint16_t numSeq = packet->numSequence; /* generally, remain the same */
-    uint16_t numAcq;
     if(isCustom) /* unless it's 3 way hand-shake : random numSeq */
     {
         srand(time(NULL));
         numSeq = rand() % (UINT16_MAX / 2);
     }
 
-    if(ack == -1) // when original packet wasn't classic data that needs an ACK
-        numAcq = (uint16_t) packet->numSequence + 1;
-    else
-        numAcq = (uint16_t) ack;
+    uint16_t numAcq = packet->numSequence + 1; /* unless it's hand-shake */
+    if(doCheck) numAcq = checkPacket(packet, flux, idFlux); /* generally, check lastNumSeq */
 
+    DEBUG_PRINT("==========> ACK : idFlux = %d ; type = %d, numSeq = %d, numAcq = %d, ECN = %d, size = %d\n", idFlux, type, numSeq, numAcq, ECN, size);
     /* sets packet data */
     if(setPacket(packet, idFlux, type, numSeq, numAcq, ECN, size, "") == -1)
     {
@@ -161,7 +157,6 @@ void handle(tcp_t tcp)
     packet_t packet = newPacket(); // alloc TCP packet
     flux_t *flux = malloc(sizeof(flux_t)*UINT8_MAX);// list of all fluxes
     uint8_t nb_flux = 0; // current nb of fluxes
-    //int first = 0;
 
     while(1)
     {
@@ -208,6 +203,8 @@ void handle(tcp_t tcp)
         else
             DEBUG_PRINT("Current type = %s\n", "DATA");
 
+        DEBUG_PRINT("numSequence = %d\n", packet->numSequence);
+
         /* check packet type */
         if(packet->type == SYN) /* start 3 way hand-shake */
         {
@@ -219,30 +216,29 @@ void handle(tcp_t tcp)
             if(status == DISCONNECTED) /* flux doesn't exist yet, needs to be created first */
             {
                 flux[packet->idFlux] = malloc(PACKET_DATA_SIZE); // flux_t ? alloc a new flux
-                //flux[packet->idFlux]->last_numSeq = packet->numSequence + 1; // à voir, +1 ?
+                flux[packet->idFlux]->last_numSeq = packet->numSequence + 1; // à voir, +1 ?
                 nb_flux++; // increments the total count of fluxes
             }
 
-            sendACK(tcp, packet, -1, SYN | ACK, 1);
-            flux[packet->idFlux]->done = packet->numSequence;
+            sendACK(tcp, packet, flux, 0, SYN | ACK, 1);
+            flux[packet->idFlux]->last_numSeq = packet->numSequence;
             flux[packet->idFlux]->status = WAITING_OPEN; // waiting for ACK from the source to open
         }
         else if(packet->type == ACK) /* waiting for ACKs while trying to open/close connection */
         {
             if(status == WAITING_OPEN) /* is waiting to be open, not fully connected yet */
             {
-                if(packet->numAcquittement == flux[packet->idFlux]->done + 1)
+                if(packet->numAcquittement == flux[packet->idFlux]->last_numSeq + 1)
                     flux[packet->idFlux]->status = ESTABLISHED;
                 else // SYN ACK needs to be sent again
                 {
-                    sendACK(tcp, packet, -1, SYN | ACK, 1);
-                    flux[packet->idFlux]->done = packet->numSequence;
+                    sendACK(tcp, packet, flux, 0, SYN | ACK, 1);
+                    flux[packet->idFlux]->last_numSeq = packet->numSequence;
                     flux[packet->idFlux]->status = WAITING_OPEN; // waiting for ACK from the source to open
                 }
-            }
-            else if(status == WAITING_CLOSE) /* is waiting to be close, not fully closed yet */
+            } else if(status == WAITING_CLOSE) /* is waiting to be close, not fully closed yet */
             {
-                if(packet->numAcquittement == flux[packet->idFlux]->done + 1)
+                if(packet->numAcquittement == flux[packet->idFlux]->last_numSeq + 1)
                 {
                     DEBUG_PRINT("Flux %d is done\n", packet->idFlux);
                     DEBUG_PRINT("All data received : %s\n", flux[packet->idFlux]->data);
@@ -253,11 +249,11 @@ void handle(tcp_t tcp)
                 } else // ACK && FIN needs to be sent again
                 {
                     // SEND ACK
-                    sendACK(tcp, packet, -1, ACK, 0); /* no lastSeq check ; ACK ; classic numSeq */
+                    sendACK(tcp, packet, flux, 0, ACK, 0); /* no lastSeq check ; ACK ; classic numSeq */
 
                     // SEND FIN
-                    sendACK(tcp, packet, -1, FIN, 1); /* no lastSeq check ; FIN ; random numSeq */
-                    flux[packet->idFlux]->done = packet->numSequence;
+                    sendACK(tcp, packet, flux, 0, FIN, 1); /* no lastSeq check ; FIN ; random numSeq */
+                    flux[packet->idFlux]->last_numSeq = packet->numSequence;
 
                     flux[packet->idFlux]->status = WAITING_CLOSE; // switch status : waiting for ACK
                 }
@@ -271,11 +267,11 @@ void handle(tcp_t tcp)
             // else : ESTABLISHED, WAITING_OPEN, WAITING_CLOSE
 
             // SEND ACK
-            sendACK(tcp, packet, -1, ACK, 0); /* no lastSeq check ; ACK ; classic numSeq */
+            sendACK(tcp, packet, flux, 0, ACK, 0); /* no lastSeq check ; ACK ; classic numSeq */
 
             // SEND FIN
-            sendACK(tcp, packet, -1, FIN, 1); /* no lastSeq check ; FIN ; random numSeq */
-            flux[packet->idFlux]->done = packet->numSequence;
+            sendACK(tcp, packet, flux, 0, FIN, 1); /* no lastSeq check ; FIN ; random numSeq */
+            flux[packet->idFlux]->last_numSeq = packet->numSequence;
 
             flux[packet->idFlux]->status = WAITING_CLOSE; // switch status : waiting for ACK
         }
@@ -287,73 +283,31 @@ void handle(tcp_t tcp)
             // source thinks connection is open while it is actually not, restart connection
             if(status == DISCONNECTED || status == WAITING_OPEN)
             {
-                sendACK(tcp, packet, -1, SYN | ACK, 1);
-                flux[packet->idFlux]->done = packet->numSequence;
+                sendACK(tcp, packet, flux, 0, SYN | ACK, 1);
+                flux[packet->idFlux]->last_numSeq = packet->numSequence;
                 flux[packet->idFlux]->status = WAITING_OPEN; // waiting for ACK from the source to open
             }
 
             // else : classic packet with data
 
-            if(packet->tailleFenetre == 0) // case : stop and wait, executes normally
-            {
-                /* check last numSeq ; classic ACK ; classic numSeq */
-                storeData(tcp, flux, packet->idFlux, packet->data); // stores data
-                sendACK(tcp, packet, packet->numSequence, ACK, 0);
-                DEBUG_PRINT("numSeq = %d\n", packet->numSequence);
-            }
-            else // case : go back n, mutltiple checks
-            {
-                DEBUG_PRINT("tailleFenetre = %d && window = %d\n", packet->tailleFenetre, flux[packet->idFlux]->window);
-                // windows size has changed : we have to start a new sequence
-                if(packet->tailleFenetre == 1 || packet->tailleFenetre != flux[packet->idFlux]->window)
-                {
-                    DEBUG_PRINT("NEW SEQUENCE\n");
-                    flux[packet->idFlux]->done = packet->numSequence; // start of sequence
-                    flux[packet->idFlux]->end = packet->numSequence + packet->tailleFenetre; // end of sequence
-                    flux[packet->idFlux]->window = flux[packet->idFlux]->end - flux[packet->idFlux]->done;
-                    //first = 1;
-                }
-                DEBUG_PRINT("\tWindow = %d | Done = %d ; End = %d\n", flux[packet->idFlux]->window, flux[packet->idFlux]->done, flux[packet->idFlux]->end);
-                // read packet and may send ACK if reached the end of sequence or issue is encountered
-                if(/*first ||*/ packet->numSequence == flux[packet->idFlux]->done) // is expected packet, no issues
-                {
-                    //DEBUG_PRINT("\tExpected : first = %d || done = %d and numSeq = %d ; numSeq+1 = %d \n", first, flux[packet->idFlux]->done, packet->numSequence, packet->numSequence + 1);
-                    DEBUG_PRINT("\tExpected : done = %d and numSeq = %d ; numSeq+1 = %d \n", flux[packet->idFlux]->done, packet->numSequence, packet->numSequence + 1);
+            // stores data only if the packet is the one expected
+            if(packet->numSequence == flux[packet->idFlux]->last_numSeq + 1)
+                storeData(tcp, flux, packet->idFlux, packet->data);
 
-                    /*if(first) // first packet of sequence, done is already incremented at line 311
-                        first = 0;
-                    else*/
-                        flux[packet->idFlux]->done++;
-
-                    //DEBUG_PRINT("\t\tfirst = %d || done = %d \n", first, flux[packet->idFlux]->done);
-                    DEBUG_PRINT("\t\tdone = %d \n", flux[packet->idFlux]->done);
-
-                    storeData(tcp, flux, packet->idFlux, packet->data); // not good, should check if data is already stored otherwise might be same data multiple times
-                    if(flux[packet->idFlux]->done == flux[packet->idFlux]->end) // end of sequence, sending ACK
-                    {
-                        sendACK(tcp, packet, flux[packet->idFlux]->done, ACK, 0);
-                        DEBUG_PRINT("END OF SEQUENCE | send done = %d\n", flux[packet->idFlux]->done);
-                    }
-                }
-                else // not expected packet, issue
-                {
-                    DEBUG_PRINT("\t Not Expected : resend done = %d and numSeq = %d\n", flux[packet->idFlux]->done, packet->numSequence);
-                    sendACK(tcp, packet, flux[packet->idFlux]->done, ACK, 0);
-                }
-
-            }
+            /* check last numSeq ; classic ACK ; classic numSeq */
+            sendACK(tcp, packet, flux, 1, ACK, 0);
         }
 
         if(status == CLOSED)
-            DEBUG_PRINT("After = %s\n", "CLOSED");
+            DEBUG_PRINT("New status = %s\n", "CLOSED");
         else if(flux[packet->idFlux]->status == DISCONNECTED)
-            DEBUG_PRINT("After = %s\n", "DISCONNECTED");
+            DEBUG_PRINT("New status = %s\n", "DISCONNECTED");
         else if(flux[packet->idFlux]->status == WAITING_OPEN)
-            DEBUG_PRINT("After = %s\n", "WAITING_OPEN");
+            DEBUG_PRINT("New status = %s\n", "WAITING_OPEN");
         else if(flux[packet->idFlux]->status == WAITING_CLOSE)
-            DEBUG_PRINT("After = %s\n", "WAITING_CLOSE");
+            DEBUG_PRINT("New status = %s\n", "WAITING_CLOSE");
         else
-            DEBUG_PRINT("After = %s\n", "ESTABLISHED");
+            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");
     }
 
     DEBUG_PRINT("Close connection\n");

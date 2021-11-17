@@ -14,7 +14,7 @@
 
 #define TIMEOUT 50000
 #define DEBUG 1
-#define FLUX_NB 1
+#define FLUX_NB 3
 
 #if defined(DEBUG) && DEBUG > 0
 #define DEBUG_PRINT(fmt, args...) printf(fmt, ##args)
@@ -183,7 +183,6 @@ void *doGoBackN(void *arg)
     int nb_packets = (flux.bufLen - 1) / PACKET_DATA_SIZE + 1; // nb packets to send
     int nb_done_packets = 0; // nb packets already sent
     int nb_lost_packet = 0; // times lost the same packet
-    /*int *sending_window = malloc(sizeof(int)*nb_packets);*/
 
     // set timeout : 500 ms
     struct timeval tv;
@@ -218,33 +217,27 @@ void *doGoBackN(void *arg)
             }
             else // it cannot be anything else other than an ACK here
             {
-
-                // get the previous sliding window value
+                /*// get the previous sliding window value
                 if (numSeq >= (nb_done_packets + sliding_window)) // only true for the first ACK of a sequence
-                    sliding_window = packet->tailleFenetre;
+                    sliding_window = packet->tailleFenetre;*/
 
                 if(flux.idFlux == 0)
-                    DEBUG_PRINT("\t ===== READ ACK %d ===== Window = %d & done = %d | ACK = %d\n", flux.idFlux, sliding_window, nb_done_packets, packet->numAcquittement);
+                    DEBUG_PRINT("\t ===== READ ACK %d ===== Window = %d & done = %d | ACK = %d | numSeq = %d\n", flux.idFlux, sliding_window, nb_done_packets, packet->numAcquittement, numSeq);
 
-                DEBUG_PRINT("\t done + window = %d | ack = %d\n", nb_done_packets + sliding_window, packet->numAcquittement);
                 if (return_value == 0) // TIMEOUT
                 {
                     sliding_window /= 2; // size of the sliding window is divided by 2
                     if(sliding_window < 1) sliding_window = 1;
-                    numSeq = nb_done_packets; // restart sending again from the last received ACK
+                    numSeq = nb_done_packets + 1; // restart sending again from the last received ACK
                     status = ESTABLISHED; // we need to resend the packet instantly
                     if(flux.idFlux == 0)
                         DEBUG_PRINT("\t\t%d ---> TIMEOUT | new window %d | numSeq %d\n", flux.idFlux, sliding_window, numSeq);
                 }
-                else if (nb_done_packets + sliding_window == packet->numAcquittement) // check if numAcq is the one we were expecting
+                else if (nb_done_packets == packet->numAcquittement) // check if numAcq is the one we were expecting
                 {
-                    DEBUG_PRINT("\t\t%d ---> SUCCESS = %d\n", flux.idFlux, sliding_window);
-
-                    status = ESTABLISHED;
-                    nb_done_packets = packet->numAcquittement;
+                    nb_done_packets++; // this packet is over, it has been acknowledged
                     nb_lost_packet = 0; // reset the counter we are done with it
-                    sliding_window *= 2; // every packet has been acquitted
-                    // sliding_window++; // not clear on this point, which version is correct
+                    sliding_window++; // one more packet can fit in the sliding window
 
                     if(flux.idFlux == 0)
                         DEBUG_PRINT("\t\t\t%d ---> packets already done %d | new window %d\n", flux.idFlux, nb_done_packets, sliding_window);
@@ -254,34 +247,17 @@ void *doGoBackN(void *arg)
                         status = TERM_SEND_FIN; // we start the close connection process
                         //DEBUG_PRINT("%d ---> Start FIN | WAITING_ACK to TERM_SEND_FIN\n", flux.idFlux);
                     }
-
-                    /* this packet is over, it has been acknowledged
-                    sending_window[nb_done_packets] = 1;*/
-
-                    //DEBUG_PRINT("\t\t%d ---> SUCCESS = %d\n", flux.idFlux, sliding_window);
-                    /*status = ESTABLISHED;
-                    nb_done_packets = packet->numAcquittement;
-                    nb_lost_packet = 0; // reset the counter we are done with it
-                    sliding_window *= 2; // every packet has been acquitted
-                    // sliding_window++; // not clear on this point, which version is correct
-
-                    if(flux.idFlux == 0)
-                        DEBUG_PRINT("\t\t\t%d ---> packets already done %d | new window %d\n", flux.idFlux, nb_done_packets, sliding_window);
-
-                    //DEBUG_PRINT("numseq(%d) ?= (nb_done_packets: %d + 1 = %d)\n", numSeq, nb_done_packets, nb_done_packets+1);
-
-                    if (nb_done_packets >= nb_packets) // if every packet has been sent, we are done here
+                    else if (numSeq == nb_done_packets) // true if we received all the ACKs we were supposed to
                     {
-                        status = TERM_SEND_FIN; // we start the close connection process
-                        //DEBUG_PRINT("%d ---> Start FIN | WAITING_ACK to TERM_SEND_FIN\n", flux.idFlux);
-                    }*/
-
+                        status = ESTABLISHED; // we start a new sequence of packet to send
+                        //numSeq = 0;
+                        if(flux.idFlux == 0)
+                            DEBUG_PRINT("\t\t\t%d ---> all ACKs -> new Sequence | WAITING_ACK to ESTABLISHED\n", flux.idFlux);
+                    }
                 }
                 else // not the ACK we expected, we lost a packet
                 {
-                    // restart sending again from the last received ACK
-                    nb_done_packets = packet->numAcquittement;
-                    numSeq = packet->numAcquittement;
+                    numSeq = packet->numAcquittement + 1; // restart sending again from the last received ACK
                     nb_lost_packet++;
 
                     if (nb_lost_packet == 3) // if we lost 3x the same packet
@@ -295,12 +271,11 @@ void *doGoBackN(void *arg)
                         DEBUG_PRINT("\t\t%d ---> LOST | done = %d and lost = %d\n", flux.idFlux, nb_done_packets, nb_lost_packet);
                 }
 
-                /*if (packet->ECN == ECN_ACTIVE) // ECN is active
+                if (packet->ECN == ECN_ACTIVE) // ECN is active
                 {
                     sliding_window = (uint8_t) (sliding_window * 0.90); // -10%, rounded down by cast
-                    if(flux.idFlux == 0)
-                        DEBUG_PRINT("%d ---> ECN | new window %d\n", flux.idFlux, sliding_window);
-                }*/
+                    DEBUG_PRINT("%d ---> ECN | new window %d\n", flux.idFlux, sliding_window);
+                }
                 if(flux.idFlux == 0)
                     DEBUG_PRINT("\t ===== STOP READ %d ===== WINDOW = %d\n", flux.idFlux, sliding_window);
             }
@@ -366,14 +341,8 @@ void *doGoBackN(void *arg)
             if(flux.idFlux == 0)
                 DEBUG_PRINT("\n\t===== START SEQUENCE %d ===== numSeq: %d, nbDonePackets: %d, sliding_window: %d, nb_packets: %d\n", flux.idFlux, numSeq, nb_done_packets, sliding_window, nb_packets);
 
-            if(nb_done_packets + sliding_window > nb_packets)
-                sliding_window = nb_packets - nb_done_packets;
-
             while (numSeq < (nb_done_packets + sliding_window) && numSeq < nb_packets)
             {
-/*                if(sending_window[numSeq] == 1) // already sent and acquitted
-                    continue;*/
-
                 // get the corresponding data we need to send
                 int fromEnd = (numSeq + 1) * PACKET_DATA_SIZE;
                 if (fromEnd > flux.bufLen)
@@ -455,17 +424,18 @@ void *doGoBackN(void *arg)
         tv.tv_sec = 0;
         if(status == TERM_WAIT_TERM) // 2x longer after the last ACK in the close connection process
             tv.tv_usec = 2 * TIMEOUT;
-        if(status == ESTABLISHED)
-            tv.tv_usec = sliding_window * TIMEOUT;
         else // one timeout for each packet send
             tv.tv_usec = TIMEOUT;
 
-        DEBUG_PRINT("%d ===== SELECT ===== %d and wait sec = %ld, usec = %ld ", flux.idFlux, flux.pipe_read, tv.tv_sec, tv.tv_usec);
+        if(flux.idFlux == 0)
+            DEBUG_PRINT("%d ===== SELECT ===== %d and wait sec = %ld, usec = %ld ", flux.idFlux, flux.pipe_read, tv.tv_sec, tv.tv_usec);
 
         // waiting for the manager to send us a packet in order to continue (through pipe)
         return_value = select(flux.pipe_read + 1, &working_set, NULL, NULL, &tv);
         if (return_value == -1) raler("select ici\n");
-        DEBUG_PRINT("%d ===== Received packet ===== ", flux.idFlux);
+
+        if(flux.idFlux == 0)
+            DEBUG_PRINT("%d ===== Received packet ===== ", flux.idFlux);
 
     } while (1);
 
