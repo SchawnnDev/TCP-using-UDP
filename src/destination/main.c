@@ -331,29 +331,29 @@ void handle(tcp_t tcp)
                     storeData(tcp, flux, packet->idFlux, packet->data); // not good, should check if data is already stored otherwise might be same data multiple times
                     if(flux[packet->idFlux]->done == flux[packet->idFlux]->end) // end of sequence, sending ACK
                     {
-                        sendACK(tcp, packet, flux[packet->idFlux]->done - 1, ACK, 0);
-                        DEBUG_PRINT("END OF SEQUENCE | send done = %d\n", flux[packet->idFlux]->done - 1);
+                        sendACK(tcp, packet, flux[packet->idFlux]->done, ACK, 0);
+                        DEBUG_PRINT("END OF SEQUENCE | send done = %d\n", flux[packet->idFlux]->done);
                     }
                 }
                 else // not expected packet, issue
                 {
                     DEBUG_PRINT("\t Not Expected : resend done = %d and numSeq = %d\n", flux[packet->idFlux]->done, packet->numSequence);
-                    sendACK(tcp, packet, flux[packet->idFlux]->done - 1, ACK, 0);
+                    sendACK(tcp, packet, flux[packet->idFlux]->done, ACK, 0);
                 }
 
             }
         }
 
         if(status == CLOSED)
-            DEBUG_PRINT("New status = %s\n", "CLOSED");
+            DEBUG_PRINT("After = %s\n", "CLOSED");
         else if(flux[packet->idFlux]->status == DISCONNECTED)
-            DEBUG_PRINT("New status = %s\n", "DISCONNECTED");
+            DEBUG_PRINT("After = %s\n", "DISCONNECTED");
         else if(flux[packet->idFlux]->status == WAITING_OPEN)
-            DEBUG_PRINT("New status = %s\n", "WAITING_OPEN");
+            DEBUG_PRINT("After = %s\n", "WAITING_OPEN");
         else if(flux[packet->idFlux]->status == WAITING_CLOSE)
-            DEBUG_PRINT("New status = %s\n", "WAITING_CLOSE");
+            DEBUG_PRINT("After = %s\n", "WAITING_CLOSE");
         else
-            DEBUG_PRINT("New status = %s\n", "ESTABLISHED");
+            DEBUG_PRINT("After = %s\n", "ESTABLISHED");
     }
 
     DEBUG_PRINT("Close connection\n");

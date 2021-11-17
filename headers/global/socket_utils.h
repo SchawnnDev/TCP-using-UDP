@@ -138,7 +138,7 @@ int prepareRecvSocket(int socket, int port)
     socketAddr.sin_family = AF_INET;
     socketAddr.sin_port = htons(port);
     socketAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    DEBUG_PRINT("prepareRcv port: %d, new: %d\n", port, htons(port));
+    //DEBUG_PRINT("prepareRcv port: %d, new: %d\n", port, htons(port));
 
     struct sockaddr *sockaddr = (struct sockaddr *) &socketAddr;
     if (bind(socket, sockaddr, sizeof(socketAddr)) == -1)
@@ -150,9 +150,7 @@ int prepareRecvSocket(int socket, int port)
 int sendPacket(int socket, packet_t packet, struct sockaddr_in *sockaddr)
 {
     struct sockaddr *sp = (struct sockaddr *) &(*sockaddr);
-    DEBUG_PRINT("SendTo: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n",
-                packet->idFlux, packet->numAcquittement, packet->numSequence,
-                packet->type | ACK ? "ACK" : "Other");
+    //DEBUG_PRINT("SendTo: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type | ACK ? "ACK" : "Other");
     return sendto(socket, packet, 52, 0, sp, sizeof(*sp)) == -1 ? -1 : 0;
 }
 
@@ -164,9 +162,7 @@ int recvPacket(packet_t packet, int socket, int size)
     if (recvfrom(socket, packet, size, 0, &from, &addrlen) == -1)
         return -1;
 
-    DEBUG_PRINT("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n",
-                packet->idFlux, packet->numAcquittement, packet->numSequence,
-                packet->type & ACK ? "ACK" : "Other");
+    //DEBUG_PRINT("RevcPacket: Flux thread=%d, go packet, ack=%d, seqNum:%d, type=%s \n", packet->idFlux, packet->numAcquittement, packet->numSequence, packet->type & ACK ? "ACK" : "Other");
 
     return 0;
 }
