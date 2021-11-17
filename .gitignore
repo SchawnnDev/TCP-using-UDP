@@ -3,6 +3,7 @@ doc/report.pdf
 .vs/
 .idea/
 bin/
+logs/
 src/source/test.c
 tools/venv
 tools/venv2
